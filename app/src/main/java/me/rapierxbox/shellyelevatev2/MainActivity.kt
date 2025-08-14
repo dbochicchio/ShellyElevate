@@ -5,18 +5,23 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.http.SslError
 import android.os.Bundle
 import android.view.MotionEvent
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
+import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_INJECT_JAVASCRIPT
+import me.rapierxbox.shellyelevatev2.Constants.SP_IGNORE_SSL_ERRORS
 import me.rapierxbox.shellyelevatev2.Constants.SP_SETTINGS_EVER_SHOWN
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mShellyElevateJavascriptInterface
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
 import me.rapierxbox.shellyelevatev2.databinding.MainActivityBinding
@@ -88,7 +93,20 @@ class MainActivity : ComponentActivity() {
 
         webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
-        binding.myWebView.webViewClient = WebViewClient()
+        binding.myWebView.webViewClient = object : WebViewClient() {
+            @SuppressLint("WebViewClientOnReceivedSslError")
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: SslErrorHandler?,
+                error: SslError?
+            ) {
+                if (mSharedPreferences.getBoolean(SP_IGNORE_SSL_ERRORS, false)) {
+                    handler?.proceed()
+                } else {
+                    super.onReceivedSslError(view, handler, error)
+                }
+            }
+        }
         binding.myWebView.webChromeClient = WebChromeClient()
 
         binding.myWebView.addJavascriptInterface(mShellyElevateJavascriptInterface, "ShellyElevate")

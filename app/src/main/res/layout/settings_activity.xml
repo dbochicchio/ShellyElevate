@@ -95,6 +95,16 @@
                     android:textSize="18sp" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/ignoreSslErrors"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginStart="48dp"
+                    android:text="@string/ignore_ssl_errors"
+                    android:textSize="18sp"
+                    tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switchOnSwipe"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

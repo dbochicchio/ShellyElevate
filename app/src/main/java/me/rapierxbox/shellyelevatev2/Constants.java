@@ -7,6 +7,7 @@ public class Constants {
 
     public static final String SP_SETTINGS_EVER_SHOWN = "settingEverShown";
     public static final String SP_WEBVIEW_URL = "webviewUrl";
+    public static final String SP_IGNORE_SSL_ERRORS = "ignoreSslErrors";
     public static final String SP_HTTP_SERVER_ENABLED = "httpServer";
     public static final String SP_SWITCH_ON_SWIPE = "switchOnSwipe";
     public static final String SP_AUTOMATIC_BRIGHTNESS = "automaticBrightness";

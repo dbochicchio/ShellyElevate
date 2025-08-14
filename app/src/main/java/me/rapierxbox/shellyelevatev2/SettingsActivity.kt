@@ -26,6 +26,7 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE
 import me.rapierxbox.shellyelevatev2.Constants.SP_EXTENDED_JAVASCRIPT_INTERFACE
 import me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED
+import me.rapierxbox.shellyelevatev2.Constants.SP_IGNORE_SSL_ERRORS
 import me.rapierxbox.shellyelevatev2.Constants.SP_LITE_MODE
 import me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_BROKER
@@ -56,13 +57,14 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: SettingsActivityBinding // Declare the binding object
 
     private fun loadValues() {
-        for (i in 0 until binding.deviceTypeSpinner.count) {
-            if (binding.deviceTypeSpinner.get(i).toString() == mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)) {
+        for (i in 0 until binding.deviceTypeSpinner.adapter.count) {
+            if (binding.deviceTypeSpinner.adapter.getItem(i) == mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)) {
                 binding.deviceTypeSpinner.setSelection(i)
             }
         }
 
         binding.webviewURL.setText(ServiceHelper.getWebviewUrl())
+        binding.ignoreSslErrors.isChecked = mSharedPreferences.getBoolean(SP_IGNORE_SSL_ERRORS, false)
         binding.switchOnSwipe.isChecked = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
         binding.automaticBrightness.isChecked = mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)
         binding.minBrightness.value = mSharedPreferences.getInt(SP_MIN_BRIGHTNESS, 48).toFloat()
@@ -238,6 +240,7 @@ class SettingsActivity : AppCompatActivity() {
             //WebView
             putString(SP_WEBVIEW_URL, binding.webviewURL.text.toString())
             putBoolean(SP_EXTENDED_JAVASCRIPT_INTERFACE, binding.extendedJavascriptInterface.isChecked)
+            putBoolean(SP_IGNORE_SSL_ERRORS, binding.ignoreSslErrors.isChecked)
 
             //MQTT
             putBoolean(SP_MQTT_ENABLED, binding.mqttEnabled.isChecked)
