@@ -35,25 +35,24 @@ import fi.iki.elonen.NanoHTTPD;
 public class HttpServer extends NanoHTTPD {
     SettingsParser mSettingsParser = new SettingsParser();
 
-    private BroadcastReceiver settingsChangedBroadcastReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && !isAlive()) {
-                try {
-                    start();
-                } catch (IOException e) {
-                    Log.d("HttpServer", "Failed to start http server: " + e);
-                }
-            } else if (!mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && isAlive()) {
-                stop();
-            }
-        }
-    };
-
     public HttpServer() {
         super(8080);
 
         LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(mApplicationContext);
+        BroadcastReceiver settingsChangedBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && !isAlive()) {
+                    try {
+                        start();
+                    } catch (IOException e) {
+                        Log.d("HttpServer", "Failed to start http server: " + e);
+                    }
+                } else if (!mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && isAlive()) {
+                    stop();
+                }
+            }
+        };
         localBroadcastManager.registerReceiver(settingsChangedBroadcastReceiver, new IntentFilter(INTENT_SETTINGS_CHANGED));
     }
 
@@ -78,6 +77,7 @@ public class HttpServer extends NanoHTTPD {
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
+                    assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
                     mSettingsParser.setSettings(jsonObject);
@@ -117,6 +117,7 @@ public class HttpServer extends NanoHTTPD {
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
+                    assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
                     String javascript = jsonObject.getString("javascript");
@@ -143,6 +144,7 @@ public class HttpServer extends NanoHTTPD {
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
+                    assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
                     Uri mediaUri = Uri.parse(jsonObject.getString("url"));
@@ -198,6 +200,7 @@ public class HttpServer extends NanoHTTPD {
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
+                    assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
                     double volume = jsonObject.getDouble("volume");
@@ -237,6 +240,7 @@ public class HttpServer extends NanoHTTPD {
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
+                    assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
                     mDeviceHelper.setRelay(jsonObject.getBoolean("state"));

@@ -6,9 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
-import android.util.Log
 import android.view.MotionEvent
-import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebViewClient
@@ -80,9 +78,11 @@ class MainActivity : ComponentActivity() {
 
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
+        @Suppress("DEPRECATION")
         webSettings.databaseEnabled = true
 
-        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+        @Suppress("DEPRECATION")
+        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH)
 
         webSettings.javaScriptCanOpenWindowsAutomatically = true
 

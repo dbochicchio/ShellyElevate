@@ -19,6 +19,7 @@ import com.google.android.material.slider.Slider
 import me.rapierxbox.shellyelevatev2.Constants.DEVICE_ATLANTIS
 import me.rapierxbox.shellyelevatev2.Constants.DEVICE_PEGASUS
 import me.rapierxbox.shellyelevatev2.Constants.DEVICE_STARGATE
+import me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED
 import me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME
 import me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS
@@ -86,7 +87,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.screenSaverDelayLayout.isVisible = binding.screenSaver.isChecked
         binding.screenSaverTypeLayout.isVisible = binding.screenSaver.isChecked
         binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked
-                && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true
+                && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)] == true
 
         binding.brightnessSettingLayout.isVisible = !binding.automaticBrightness.isChecked
         binding.minBrightnessLayout.isVisible = binding.automaticBrightness.isChecked
@@ -133,7 +134,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.deviceTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
-                binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true
+                binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)] == true
             }
 
             override fun onNothingSelected(AdapterView: AdapterView<*>?) {
@@ -258,14 +259,14 @@ class SettingsActivity : AppCompatActivity() {
             putInt(SP_SCREEN_SAVER_DELAY, binding.screenSaverDelay.text.toString().toIntOrNull() ?: SCREEN_SAVER_DEFAULT_DELAY)
             putInt(SP_SCREEN_SAVER_ID, binding.screenSaverType.selectedItemPosition)
             putBoolean(SP_WAKE_ON_PROXIMITY, binding.wakeOnProximity.isChecked
-                    && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true)
+                    && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)] == true)
 
             //Http Server
             putBoolean(SP_HTTP_SERVER_ENABLED, binding.httpServerEnabled.isChecked)
         }
         
         LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext)
-            .sendBroadcast(Intent(Constants.INTENT_SETTINGS_CHANGED))
+            .sendBroadcast(Intent(INTENT_SETTINGS_CHANGED))
         
         Toast.makeText(this, getString(R.string.settings_saved), Toast.LENGTH_SHORT).show()
 

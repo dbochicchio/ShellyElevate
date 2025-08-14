@@ -117,13 +117,13 @@ public class DeviceHelper {
     }
     public double getTemperature() {
         String[] tempSplit = readFileContent(tempAndHumFile).split(":");
-        double temp = (((Double.parseDouble(tempSplit[1]) * 175.0) / 65535.0) - 45.0) - 1.1;
+        double temp = (Double.parseDouble(tempSplit[1]) * 175.0 / 65535.0) - 45.0;
         temp += temperatureOffset.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS));
         return Math.round(temp * 10.0) / 10.0;
     }
     public double getHumidity() {
         String[] humiditySplit = readFileContent(tempAndHumFile).split(":");
-        double humidity = ((Double.parseDouble(humiditySplit[0]) * 100.0) / 65535.0) + 18.0;
+        double humidity = Double.parseDouble(humiditySplit[0]) * 100.0 / 65535.0;
         humidity += humidityOffset.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS));
         return Math.round(humidity);
     }
