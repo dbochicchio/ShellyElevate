@@ -35,4 +35,9 @@
     <string name="accessibility_description">This service will show a \"Back\" button when ShellyElevate is not visible.</string>
     <string name="accessibility_service_not_enabled">Enable accessibility service to continue</string>
     <string name="min_brightness">Minimum brightness</string>
+    <string name="device">Device</string>
+    <string name="floating_back_button">Floating Back Button</string>
+    <string name="reboot">Reboot</string>
+    <string name="B_exit">Exit</string>
+    <string name="wake_on_proximity">Wake on Proximity</string>
 </resources>

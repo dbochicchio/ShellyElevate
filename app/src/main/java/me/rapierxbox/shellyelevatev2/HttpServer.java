@@ -1,12 +1,22 @@
 package me.rapierxbox.shellyelevatev2;
 
+import static me.rapierxbox.shellyelevatev2.Constants.DEVICE_STARGATE;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED;
 import static me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_INJECT_JAVASCRIPT;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_REFRESH;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED;
+import static me.rapierxbox.shellyelevatev2.Constants.hasProximitySensor;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMediaHelper;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.util.Log;
 import android.widget.Toast;
@@ -21,16 +31,31 @@ import java.util.HashMap;
 import java.util.Map;
 
 import fi.iki.elonen.NanoHTTPD;
-import me.rapierxbox.shellyelevatev2.helper.MediaHelper;
-import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManagerHolder;
 
 public class HttpServer extends NanoHTTPD {
+    SettingsParser mSettingsParser = new SettingsParser();
+
+    private BroadcastReceiver settingsChangedBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && !isAlive()) {
+                try {
+                    start();
+                } catch (IOException e) {
+                    Log.d("HttpServer", "Failed to start http server: " + e);
+                }
+            } else if (!mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true) && isAlive()) {
+                stop();
+            }
+        }
+    };
+
     public HttpServer() {
         super(8080);
-    }
 
-    SettingsParser mSettingsParser = new SettingsParser();
-    MediaHelper   mMediaHelper = new MediaHelper();
+        LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(mApplicationContext);
+        localBroadcastManager.registerReceiver(settingsChangedBroadcastReceiver, new IntentFilter(INTENT_SETTINGS_CHANGED));
+    }
 
     @Override
     public Response serve(IHTTPSession session) {
@@ -83,7 +108,7 @@ public class HttpServer extends NanoHTTPD {
         switch (uri.replace("/webview/", "")) {
             case "refresh":
                 if (method.equals(Method.GET)) {
-                    Intent intent = new Intent(INTENT_WEBVIEW_REFRESH);
+                    Intent intent = new Intent(INTENT_SETTINGS_CHANGED);
                     LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext).sendBroadcast(intent);
                     jsonResponse.put("success", true);
                 }
@@ -249,17 +274,31 @@ public class HttpServer extends NanoHTTPD {
                     jsonResponse.put("error", "Invalid request method");
                 }
                 break;
+            case "getProximity":
+                if (method.equals(Method.GET)) {
+                    if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_STARGATE)))) {
+                        jsonResponse.put("success", true);
+                        jsonResponse.put("distance", mDeviceSensorManager.getLastMeasuredDistance());
+                    } else {
+                        jsonResponse.put("success", false);
+                        jsonResponse.put("error", "This device doesn't support proximity sensor measurement");
+                    }
+                } else {
+                    jsonResponse.put("success", false);
+                    jsonResponse.put("error", "Invalid request method");
+                }
+                break;
             case "wake":
                 jsonResponse.put("success", false);
                 if (method.equals(Method.POST)) {
-                    ScreenSaverManagerHolder.getInstance().stopScreenSaver();
+                    mScreenSaverManager.stopScreenSaver();
                     jsonResponse.put("success", true);
                 }
                 break;
             case "sleep":
                 jsonResponse.put("success", false);
                 if (method.equals(Method.POST)) {
-                    ScreenSaverManagerHolder.getInstance().startScreenSaver();
+                    mScreenSaverManager.startScreenSaver();
                     jsonResponse.put("success", true);
                 }
                 break;
@@ -273,7 +312,7 @@ public class HttpServer extends NanoHTTPD {
                             Runtime.getRuntime().exec("reboot");
                             jsonResponse.put("success", true);
                         } catch (IOException e) {
-                            Log.e("MQTT", "Error rebooting:", e);
+                            Log.e("HttpServer", "Error rebooting:", e);
                         }
                     } else {
                         Toast.makeText(mApplicationContext, "Please wait %s seconds before rebooting".replace("%s", String.valueOf(20 - deltaTime)), Toast.LENGTH_LONG).show();
@@ -292,6 +331,5 @@ public class HttpServer extends NanoHTTPD {
     public void onDestroy() {
         closeAllConnections();
         stop();
-        mMediaHelper.onDestroy();
     }
 }

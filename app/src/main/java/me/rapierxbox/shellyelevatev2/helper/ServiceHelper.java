@@ -5,7 +5,6 @@ import static me.rapierxbox.shellyelevatev2.Constants.SP_WEBVIEW_URL;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
 import android.util.Log;

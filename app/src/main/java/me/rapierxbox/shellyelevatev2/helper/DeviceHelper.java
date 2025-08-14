@@ -1,11 +1,17 @@
 package me.rapierxbox.shellyelevatev2.helper;
 
+import static me.rapierxbox.shellyelevatev2.Constants.DEVICE_ATLANTIS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
+import static me.rapierxbox.shellyelevatev2.Constants.humidityOffset;
+import static me.rapierxbox.shellyelevatev2.Constants.temperatureOffset;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -33,10 +39,6 @@ public class DeviceHelper {
     private String screenBrightnessFile;
     private final String[] relayFiles;
     private boolean screenOn = true;
-    private int screenBrightness;
-    private boolean automaticBrightness;
-
-    private final String TAG = "DeviceHelper";
 
     public DeviceHelper() {
         for (String brightnessFile : screenBrightnessFiles) {
@@ -60,13 +62,11 @@ public class DeviceHelper {
             relayFileList.add("");
         }
         relayFiles = relayFileList.toArray(new String[0]);
-
-        updateValues();
     }
 
     public void setScreenOn(boolean on) {
         screenOn = on;
-        int brightness = automaticBrightness ? DeviceSensorManager.getScreenBrightnessFromLux(mDeviceSensorManager.getLastMeasuredLux()) : screenBrightness;
+        int brightness = mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true) ? DeviceSensorManager.getScreenBrightnessFromLux(mDeviceSensorManager.getLastMeasuredLux()) : mSharedPreferences.getInt(SP_BRIGHTNESS, 255);
         forceScreenBrightness(on ? brightness : 0);
     }
 
@@ -80,16 +80,20 @@ public class DeviceHelper {
 
         forceScreenBrightness(brightness);
 
-        if (!automaticBrightness) {
+        if (!mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)) {
             mSharedPreferences.edit().putInt(SP_BRIGHTNESS, brightness).apply();
-            screenBrightness = brightness;
         }
     }
 
     public void forceScreenBrightness(int brightness) {
         brightness = Math.max(0, Math.min(brightness, 255));
 
-        Log.d(TAG, "Set brightness to: " + brightness);
+        Log.d("DeviceHelper", "Set brightness to: " + brightness);
+        if (!Settings.System.canWrite(mApplicationContext)) {
+            Log.i("DeviceHelper", "Please disable androids automatic brightness or give the app the change settings permission.");
+        } else {
+            Settings.System.putInt(mApplicationContext.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+        }
 
         writeFileContent(screenBrightnessFile, String.valueOf(brightness));
     }
@@ -114,17 +118,14 @@ public class DeviceHelper {
     public double getTemperature() {
         String[] tempSplit = readFileContent(tempAndHumFile).split(":");
         double temp = (((Double.parseDouble(tempSplit[1]) * 175.0) / 65535.0) - 45.0) - 1.1;
+        temp += temperatureOffset.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS));
         return Math.round(temp * 10.0) / 10.0;
     }
     public double getHumidity() {
         String[] humiditySplit = readFileContent(tempAndHumFile).split(":");
         double humidity = ((Double.parseDouble(humiditySplit[0]) * 100.0) / 65535.0) + 18.0;
+        humidity += humidityOffset.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS));
         return Math.round(humidity);
-    }
-
-    public void updateValues() {
-        screenBrightness = mSharedPreferences.getInt(SP_BRIGHTNESS, 255);
-        automaticBrightness = mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true);
     }
 
     private static String readFileContent(String filePath) {

@@ -5,7 +5,6 @@ import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelp
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
-import android.util.Log;
 import android.view.MotionEvent;
 
 public class SwipeHelper{
@@ -15,31 +14,24 @@ public class SwipeHelper{
     public float minVel = 2.5F;
     public float minDist = 250.0F;
 
-    private boolean doSwitchOnSwipe = true;
     public boolean onTouchEvent(MotionEvent event){
         switch (event.getAction()){
             case MotionEvent.ACTION_DOWN:
                 touchStartY = event.getY();
                 touchStartEventTime = event.getEventTime();
-                return true;
             case MotionEvent.ACTION_UP:
                 float deltaY = Math.abs(touchStartY - event.getY());
                 float deltaT = Math.abs(touchStartEventTime - event.getEventTime());
                 float velocity = deltaY / deltaT;
                 if (velocity > minVel && deltaY > minDist){
-                    if (doSwitchOnSwipe) {
+                    if (mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)) {
                         mDeviceHelper.setRelay(!mDeviceHelper.getRelay());
                     }
                     if (mMQTTServer.shouldSend()) {
                         mMQTTServer.publishSwipeEvent();
                     }
-                    return false;
                 }
         }
         return true;
-    }
-
-    public void updateValues() {
-        doSwitchOnSwipe = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true);
     }
 }

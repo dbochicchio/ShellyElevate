@@ -4,6 +4,7 @@ import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicatio
 import static me.rapierxbox.shellyelevatev2.Constants.*;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager;
 
 import android.content.Intent;
 import android.util.Log;
@@ -20,10 +21,8 @@ import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication;
-import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManagerHolder;
 
 public class ShellyElevateMQTTCallback implements MqttCallback {
     @Override
@@ -44,14 +43,14 @@ public class ShellyElevateMQTTCallback implements MqttCallback {
                 mDeviceHelper.setRelay(new String(message.getPayload(), StandardCharsets.UTF_8).contains("ON"));
                 break;
             case MQTT_TOPIC_REFRESH_WEBVIEW_BUTTON:
-                Intent intent = new Intent(INTENT_WEBVIEW_REFRESH);
+                Intent intent = new Intent(INTENT_SETTINGS_CHANGED);
                 LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext).sendBroadcast(intent);
                 break;
             case MQTT_TOPIC_SLEEP_BUTTON:
-                ScreenSaverManagerHolder.getInstance().startScreenSaver();
+                mScreenSaverManager.startScreenSaver();
                 break;
             case MQTT_TOPIC_WAKE_BUTTON:
-                ScreenSaverManagerHolder.getInstance().stopScreenSaver();
+                mScreenSaverManager.stopScreenSaver();
                 break;
             case MQTT_TOPIC_REBOOT_BUTTON:
                 long deltaTime = System.currentTimeMillis() - ShellyElevateApplication.getApplicationStartTime();

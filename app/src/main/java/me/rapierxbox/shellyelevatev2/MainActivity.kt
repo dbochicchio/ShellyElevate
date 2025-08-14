@@ -8,21 +8,21 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.util.Log
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
-import me.rapierxbox.shellyelevatev2.BuildConfig
+import me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_INJECT_JAVASCRIPT
-import me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_REFRESH
-import me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME
+import me.rapierxbox.shellyelevatev2.Constants.SP_SETTINGS_EVER_SHOWN
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mShellyElevateJavascriptInterface
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
 import me.rapierxbox.shellyelevatev2.databinding.MainActivityBinding
 import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
-import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManagerHolder
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class MainActivity : ComponentActivity() {
@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
     private var clicksButtonRight: Int = 0
     private var clicksButtonLeft: Int = 0
 
-    private var webviewRefreshBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+    private var settingsChangedBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             binding.myWebView.loadUrl(ServiceHelper.getWebviewUrl())
         }
@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
         webSettings.domStorageEnabled = true
         webSettings.databaseEnabled = true
 
+        webSettings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+
         webSettings.javaScriptCanOpenWindowsAutomatically = true
 
         webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -112,21 +114,18 @@ class MainActivity : ComponentActivity() {
         setupSettingsButtons()
 
         binding.swipeDetectionOverlay.setOnTouchListener { _, event ->
-            if (ScreenSaverManagerHolder.getInstance().onTouchEvent()) {
-                Log.d("ShellyElevateV2", "Touch blocked by ScreenSaverManager")
-                return@setOnTouchListener true
-            }
             mSwipeHelper.onTouchEvent(event)
+            mScreenSaverManager.onTouchEvent(event)
             binding.myWebView.onTouchEvent(event)
 
             return@setOnTouchListener true
         }
 
         val localBroadcastManager: LocalBroadcastManager = LocalBroadcastManager.getInstance(this)
-        localBroadcastManager.registerReceiver(webviewRefreshBroadcastReceiver, IntentFilter(INTENT_WEBVIEW_REFRESH))
+        localBroadcastManager.registerReceiver(settingsChangedBroadcastReceiver, IntentFilter(INTENT_SETTINGS_CHANGED))
         localBroadcastManager.registerReceiver(webviewJavascriptInjectorBroadcastReceiver, IntentFilter(INTENT_WEBVIEW_INJECT_JAVASCRIPT))
 
-        if (!getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE).getBoolean("settingEverShown", false) || BuildConfig.DEBUG)
+        if (!ShellyElevateApplication.mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false))
             startActivity(Intent(this, SettingsActivity::class.java))
     }
 }

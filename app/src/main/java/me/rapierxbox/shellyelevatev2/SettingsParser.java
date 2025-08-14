@@ -1,7 +1,6 @@
 package me.rapierxbox.shellyelevatev2;
 
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.updateSPValues;
 
 import android.content.SharedPreferences;
 
@@ -37,6 +36,5 @@ public class SettingsParser {
             }
         }
         editor.apply();
-        updateSPValues();
     }
 }

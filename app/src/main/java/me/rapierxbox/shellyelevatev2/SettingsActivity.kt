@@ -3,20 +3,26 @@ package me.rapierxbox.shellyelevatev2
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.view.Menu
-import android.view.MenuItem
+import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
-import androidx.core.net.toUri
+import androidx.core.view.get
 import androidx.core.view.isVisible
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.google.android.material.slider.Slider
+import me.rapierxbox.shellyelevatev2.Constants.DEVICE_ATLANTIS
+import me.rapierxbox.shellyelevatev2.Constants.DEVICE_PEGASUS
+import me.rapierxbox.shellyelevatev2.Constants.DEVICE_STARGATE
 import me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME
 import me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS
+import me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE
 import me.rapierxbox.shellyelevatev2.Constants.SP_EXTENDED_JAVASCRIPT_INTERFACE
 import me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_LITE_MODE
@@ -30,15 +36,17 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_DELAY
 import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ID
 import me.rapierxbox.shellyelevatev2.Constants.SP_SWITCH_ON_SWIPE
+import me.rapierxbox.shellyelevatev2.Constants.SP_WAKE_ON_PROXIMITY
 import me.rapierxbox.shellyelevatev2.Constants.SP_WEBVIEW_URL
+import me.rapierxbox.shellyelevatev2.Constants.hasProximitySensor
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mHttpServer
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
-import me.rapierxbox.shellyelevatev2.backbutton.BackAccessibilityService
-import me.rapierxbox.shellyelevatev2.backbutton.FloatingBackButtonService
 import me.rapierxbox.shellyelevatev2.databinding.SettingsActivityBinding
 import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
-import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManagerHolder
+import java.io.IOException
 import java.net.NetworkInterface
 
 @SuppressLint("UseSwitchCompatOrMaterialCode")
@@ -47,32 +55,38 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: SettingsActivityBinding // Declare the binding object
 
     private fun loadValues() {
-
-        val preferences = getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE)
+        for (i in 0 until binding.deviceTypeSpinner.count) {
+            if (binding.deviceTypeSpinner.get(i).toString() == mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)) {
+                binding.deviceTypeSpinner.setSelection(i)
+            }
+        }
 
         binding.webviewURL.setText(ServiceHelper.getWebviewUrl())
-        binding.switchOnSwipe.isChecked = preferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
-        binding.automaticBrightness.isChecked = preferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)
-        binding.minBrightness.value = preferences.getInt(SP_MIN_BRIGHTNESS, 48).toFloat()
-        binding.brightnessSetting.value = preferences.getInt(SP_BRIGHTNESS, DEFAULT_BRIGHTNESS).toFloat()
-        binding.screenSaver.isChecked = preferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true)
-        binding.screenSaverDelay.setText(preferences.getInt(SP_SCREEN_SAVER_DELAY, SCREEN_SAVER_DEFAULT_DELAY).toString())
-        binding.screenSaverType.setSelection(preferences.getInt(SP_SCREEN_SAVER_ID, 0))
+        binding.switchOnSwipe.isChecked = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
+        binding.automaticBrightness.isChecked = mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)
+        binding.minBrightness.value = mSharedPreferences.getInt(SP_MIN_BRIGHTNESS, 48).toFloat()
+        binding.brightnessSetting.value = mSharedPreferences.getInt(SP_BRIGHTNESS, DEFAULT_BRIGHTNESS).toFloat()
+        binding.screenSaver.isChecked = mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true)
+        binding.screenSaverDelay.setText(mSharedPreferences.getInt(SP_SCREEN_SAVER_DELAY, SCREEN_SAVER_DEFAULT_DELAY).toString())
+        binding.screenSaverType.setSelection(mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0))
+        binding.wakeOnProximity.isChecked = mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, false)
 
-        binding.httpServerEnabled.isChecked = preferences.getBoolean(SP_HTTP_SERVER_ENABLED, true)
+        binding.httpServerEnabled.isChecked = mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true)
         binding.httpServerAddress.text = getString(R.string.server_url, getLocalIpAddress())
 
         binding.httpServerStatus.text = getString(if (mHttpServer.isAlive) R.string.http_server_running else R.string.http_server_not_running)
-        binding.extendedJavascriptInterface.isChecked = preferences.getBoolean(SP_EXTENDED_JAVASCRIPT_INTERFACE, false)
-        binding.liteMode.isChecked = preferences.getBoolean(SP_LITE_MODE, false)
-        binding.mqttEnabled.isChecked = preferences.getBoolean(SP_MQTT_ENABLED, false)
-        binding.mqttBroker.setText(preferences.getString(SP_MQTT_BROKER, ""))
-        binding.mqttPort.setText(preferences.getInt(SP_MQTT_PORT, MQTT_DEFAULT_PORT).toString())
-        binding.mqttUsername.setText(preferences.getString(SP_MQTT_USERNAME, ""))
-        binding.mqttPassword.setText(preferences.getString(SP_MQTT_PASSWORD, ""))
+        binding.extendedJavascriptInterface.isChecked = mSharedPreferences.getBoolean(SP_EXTENDED_JAVASCRIPT_INTERFACE, false)
+        binding.liteMode.isChecked = mSharedPreferences.getBoolean(SP_LITE_MODE, false)
+        binding.mqttEnabled.isChecked = mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false)
+        binding.mqttBroker.setText(mSharedPreferences.getString(SP_MQTT_BROKER, ""))
+        binding.mqttPort.setText(mSharedPreferences.getInt(SP_MQTT_PORT, MQTT_DEFAULT_PORT).toString())
+        binding.mqttUsername.setText(mSharedPreferences.getString(SP_MQTT_USERNAME, ""))
+        binding.mqttPassword.setText(mSharedPreferences.getString(SP_MQTT_PASSWORD, ""))
 
         binding.screenSaverDelayLayout.isVisible = binding.screenSaver.isChecked
         binding.screenSaverTypeLayout.isVisible = binding.screenSaver.isChecked
+        binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked
+                && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true
 
         binding.brightnessSettingLayout.isVisible = !binding.automaticBrightness.isChecked
         binding.minBrightnessLayout.isVisible = binding.automaticBrightness.isChecked
@@ -87,7 +101,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.mqttUsernameLayout.isVisible = binding.mqttEnabled.isChecked
         binding.mqttPasswordLayout.isVisible = binding.mqttEnabled.isChecked
 
-        preferences.edit {
+        mSharedPreferences.edit {
             putBoolean("settingEverShown", true)
         }
     }
@@ -99,17 +113,51 @@ class SettingsActivity : AppCompatActivity() {
         binding = SettingsActivityBinding.inflate(layoutInflater) // Inflate the binding
         setContentView(binding.root) // Set the content view using binding.root
 
-        setSupportActionBar(binding.toolbar)
-
         supportActionBar?.let {
             it.setHomeButtonEnabled(true)
             it.setDisplayHomeAsUpEnabled(true)
             title = getString(R.string.settings)
         }
 
-        binding.screenSaverType.adapter = ScreenSaverManagerHolder.getInstance().screenSaverSpinnerAdapter
+        binding.screenSaverType.adapter = mScreenSaverManager.screenSaverSpinnerAdapter
+        binding.deviceTypeSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item,
+            listOf(
+                DEVICE_STARGATE,
+                DEVICE_ATLANTIS,
+                DEVICE_PEGASUS
+            )).apply{
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
 
         loadValues()
+
+        binding.deviceTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true
+            }
+
+            override fun onNothingSelected(AdapterView: AdapterView<*>?) {
+            }
+        }
+
+        binding.backButton.setOnClickListener {
+            saveSettings()
+            finish()
+        }
+
+        binding.rebootButton.setOnClickListener {
+            saveSettings()
+            try {
+                Runtime.getRuntime().exec("reboot")
+            } catch (e: IOException) {
+                Log.e("SettingsActivity", "Error rebooting:", e)
+            }
+        }
+
+        binding.rebootButton.setOnClickListener {
+            saveSettings()
+            finishAffinity()
+        }
 
         binding.findURLButton.setOnClickListener {
             ServiceHelper.getHAURL(applicationContext) { url: String ->
@@ -119,12 +167,10 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        binding.brightnessSetting.addOnChangeListener(object : Slider.OnChangeListener {
-
-            override fun onValueChange(slider: Slider, value: Float, fromUser: Boolean) {
+        binding.brightnessSetting.addOnChangeListener(
+            Slider.OnChangeListener { _, value, _ ->
                 mDeviceHelper.forceScreenBrightness(value.toInt())
-            }
-        })
+            })
 
         binding.screenSaver.setOnCheckedChangeListener { _, isChecked ->
             binding.screenSaverDelayLayout.isVisible = isChecked
@@ -154,12 +200,9 @@ class SettingsActivity : AppCompatActivity() {
             binding.httpServerButton.isVisible = false
         }
 
-        binding.swipeDetectionOverlay.setOnTouchListener { _, event ->
-            if (ScreenSaverManagerHolder.getInstance().onTouchEvent()) {
-                Log.d("ShellyElevateV2", "Touch blocked by ScreenSaverManager")
-                return@setOnTouchListener true
-            }
+        binding.swipeDetectionOverlay.setOnTouchListener { v, event ->
             mSwipeHelper.onTouchEvent(event)
+            mScreenSaverManager.onTouchEvent(event)
 
             return@setOnTouchListener false
         }
@@ -177,60 +220,17 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSupportNavigateUp(): Boolean {
-        saveSettings()
-        return true
-    }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.settings_menu, menu)
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_settings -> {
-
-                if (checkAccessibilityPermission()) {
-                    val intent = Intent(Settings.ACTION_SETTINGS)
-                    startActivity(intent)
-                }
-                true
-            }
-
-            R.id.action_exit -> {
-                if (checkAccessibilityPermission()) {
-                    moveTaskToBack(true)
-                    finishAffinity()
-                }
-                true
-            }
-
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-
-    private fun checkAccessibilityPermission(): Boolean {
-        if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Please, grant overlay permission to show the floating back button", Toast.LENGTH_LONG).show()
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:$packageName".toUri())
-            startActivity(intent)
-            return false
-        }
-
-        startService(Intent(this, FloatingBackButtonService::class.java))
-
-        if (!BackAccessibilityService.isAccessibilityEnabled(this)) {
-            Toast.makeText(this, "Please, grant accessibility permission to use the floating back button", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            return false
-        }
-
-        return true
-    }
-
     private fun saveSettings() {
         getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE).edit {
+            // device
+            putString(SP_DEVICE, binding.deviceTypeSpinner.selectedItem.toString())
+
             //Functional mode
             putBoolean(SP_LITE_MODE, binding.liteMode.isChecked)
 
@@ -257,33 +257,22 @@ class SettingsActivity : AppCompatActivity() {
             putBoolean(SP_SCREEN_SAVER_ENABLED, binding.screenSaver.isChecked)
             putInt(SP_SCREEN_SAVER_DELAY, binding.screenSaverDelay.text.toString().toIntOrNull() ?: SCREEN_SAVER_DEFAULT_DELAY)
             putInt(SP_SCREEN_SAVER_ID, binding.screenSaverType.selectedItemPosition)
+            putBoolean(SP_WAKE_ON_PROXIMITY, binding.wakeOnProximity.isChecked
+                    && hasProximitySensor[mSharedPreferences.getString(SP_DEVICE, Constants.DEVICE_ATLANTIS)] == true)
 
             //Http Server
             putBoolean(SP_HTTP_SERVER_ENABLED, binding.httpServerEnabled.isChecked)
         }
-
-        val serverEnabled = binding.httpServerEnabled.isChecked
-
-        if (!serverEnabled && mHttpServer.isAlive) {
-            mHttpServer.stop()
-        } else if (serverEnabled && !mHttpServer.isAlive) {
-            mHttpServer.start()
-        }
-
-        ShellyElevateApplication.updateSPValues()
+        
+        LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext)
+            .sendBroadcast(Intent(Constants.INTENT_SETTINGS_CHANGED))
+        
         Toast.makeText(this, getString(R.string.settings_saved), Toast.LENGTH_SHORT).show()
 
         finish()
     }
 
-    override fun onResume() {
-        super.onResume()
-        val intent = Intent(this, FloatingBackButtonService::class.java)
-        intent.action = FloatingBackButtonService.HIDE_FLOATING_BUTTON
-        startService(intent)
-    }
-
-    fun getLocalIpAddress() = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }.firstOrNull { it.isSiteLocalAddress }?.hostAddress
+    private fun getLocalIpAddress() = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }.firstOrNull { it.isSiteLocalAddress }?.hostAddress
 
     companion object {
         const val SCREEN_SAVER_DEFAULT_DELAY = 45

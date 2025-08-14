@@ -1,9 +1,12 @@
 package me.rapierxbox.shellyelevatev2.mqtt;
 
+import static me.rapierxbox.shellyelevatev2.Constants.DEVICE_STARGATE;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_CONFIG_DEVICE;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HOME_ASSISTANT_STATUS;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HUM_SENSOR;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_LUX_SENSOR;
+import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_PROXIMITY_SENSOR;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_REBOOT_BUTTON;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_REFRESH_WEBVIEW_BUTTON;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_RELAY_COMMAND;
@@ -14,17 +17,27 @@ import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_STATUS;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_SWIPE_EVENT;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_TEMP_SENSOR;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_WAKE_BUTTON;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_BROKER;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_DEVICE_ID;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_ENABLED;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PASSWORD;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PORT;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_USERNAME;
+import static me.rapierxbox.shellyelevatev2.Constants.hasProximitySensor;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.util.Log;
+
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
@@ -39,22 +52,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManagerHolder;
-
 public class MQTTServer {
     private MqttClient mMqttClient;
     private final MemoryPersistence mMemoryPersistence;
     private final ShellyElevateMQTTCallback mShellyElevateMQTTCallback;
     private final MqttConnectionOptions mMqttConnectionsOptions;
     private final ScheduledExecutorService scheduler;
-
-    private boolean enabled;
     private boolean connected;
-    private byte[] password;
-    private String username;
-    private String broker;
     private String clientId;
-    private int port;
 
     private boolean validForConnection;
 
@@ -62,6 +67,15 @@ public class MQTTServer {
         mMemoryPersistence = new MemoryPersistence();
         mShellyElevateMQTTCallback = new ShellyElevateMQTTCallback();
         mMqttConnectionsOptions = new MqttConnectionOptions();
+
+        LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(mApplicationContext);
+        BroadcastReceiver settingsChangedBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                checkCredsAndConnect();
+            }
+        };
+        localBroadcastManager.registerReceiver(settingsChangedBroadcastReceiver, new IntentFilter(INTENT_SETTINGS_CHANGED));
 
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleWithFixedDelay(this::publishTempAndHum, 0, 5, TimeUnit.SECONDS);
@@ -74,18 +88,17 @@ public class MQTTServer {
             mSharedPreferences.edit().putString(SP_MQTT_DEVICE_ID, clientId).apply();
         }
 
-        updateValues();
+        checkCredsAndConnect();
     }
 
-    public void updateValues() {
-        password = mSharedPreferences.getString(SP_MQTT_PASSWORD, "").getBytes();
-        username = mSharedPreferences.getString(SP_MQTT_USERNAME, "");
-        broker = mSharedPreferences.getString(SP_MQTT_BROKER, "");
-        port = mSharedPreferences.getInt(SP_MQTT_PORT, 1883);
-        clientId = mSharedPreferences.getString(SP_MQTT_DEVICE_ID, "shellywalldisplay");
-        enabled = mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false);
+    public void checkCredsAndConnect() {
+        if (!mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false)) {
+            return;
+        }
 
-        validForConnection = password.length > 0 && !username.isEmpty() && !broker.isEmpty();
+        validForConnection = !mSharedPreferences.getString(SP_MQTT_PASSWORD, "").isEmpty() &&
+                !mSharedPreferences.getString(SP_MQTT_USERNAME, "").isEmpty() &&
+                !mSharedPreferences.getString(SP_MQTT_BROKER, "").isEmpty();
 
         connect();
     }
@@ -107,14 +120,15 @@ public class MQTTServer {
     public void connect() {
         if (validForConnection) {
             try {
-                mMqttConnectionsOptions.setUserName(username);
-                mMqttConnectionsOptions.setPassword(password);
+                mMqttConnectionsOptions.setUserName(mSharedPreferences.getString(SP_MQTT_USERNAME, ""));
+                mMqttConnectionsOptions.setPassword(mSharedPreferences.getString(SP_MQTT_PASSWORD, "").getBytes());
+                mMqttConnectionsOptions.setAutomaticReconnect(true);
 
                 if (connected) {
                     disconnect();
                 }
 
-                mMqttClient = new MqttClient(broker + ":" + port, clientId, mMemoryPersistence);
+                mMqttClient = new MqttClient(mSharedPreferences.getString(SP_MQTT_BROKER, "") + ":" + mSharedPreferences.getInt(SP_MQTT_PORT, 1883), clientId, mMemoryPersistence);
                 mMqttClient.setCallback(mShellyElevateMQTTCallback);
                 mMqttClient.connect(mMqttConnectionsOptions);
 
@@ -135,7 +149,10 @@ public class MQTTServer {
                 publishTempAndHum();
                 publishRelay(mDeviceHelper.getRelay());
                 publishLux(mDeviceSensorManager.getLastMeasuredLux());
-                publishSleeping(ScreenSaverManagerHolder.getInstance().isScreenSaverRunning());
+                if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_STARGATE)))) {
+                    publishProximity(mDeviceSensorManager.getLastMeasuredDistance());
+                }
+                publishSleeping(mScreenSaverManager.isScreenSaverRunning());
 
             } catch (MqttException | JSONException e) {
                 Log.e("MQTT", "Error connecting:", e);
@@ -144,11 +161,11 @@ public class MQTTServer {
     }
 
     public boolean isEnabled() {
-        return enabled;
+        return mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false);
     }
 
     public boolean shouldSend() {
-        return connected && enabled;
+        return connected && mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false);
     }
 
     public void publishTempAndHum() {
@@ -179,6 +196,14 @@ public class MQTTServer {
             mMqttClient.publish(parseTopic(MQTT_TOPIC_LUX_SENSOR), String.valueOf(lux).getBytes(), 1, false);
         } catch (MqttException e) {
             Log.e("MQTT", "Error publishing lux", e);
+        }
+    }
+
+    public void publishProximity(float distance) {
+        try {
+            mMqttClient.publish(parseTopic(MQTT_TOPIC_PROXIMITY_SENSOR), String.valueOf(distance).getBytes(), 1, false);
+        } catch (MqttException e) {
+            Log.e("MQTT", "Error publishing proximity", e);
         }
     }
 
@@ -252,6 +277,17 @@ public class MQTTServer {
         luxSensorPayload.put("unit_of_measurement", "lx");
         luxSensorPayload.put("unique_id", clientId + "_lux");
         components.put(clientId + "_lux", luxSensorPayload);
+
+        if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_STARGATE)))) {
+            JSONObject proximitySensorPayload = new JSONObject();
+            proximitySensorPayload.put("p", "sensor");
+            proximitySensorPayload.put("name", "Proximity");
+            proximitySensorPayload.put("state_topic", parseTopic(MQTT_TOPIC_PROXIMITY_SENSOR));
+            proximitySensorPayload.put("device_class", "distance");
+            proximitySensorPayload.put("unit_of_measurement", "cm");
+            proximitySensorPayload.put("unique_id", clientId + "_proximity");
+            components.put(clientId + "_proximity", proximitySensorPayload);
+        }
 
         JSONObject relaySwitchPayload = new JSONObject();
         relaySwitchPayload.put("p", "switch");

@@ -1,5 +1,7 @@
 package me.rapierxbox.shellyelevatev2.screensavers;
 
+import static android.view.MotionEvent.ACTION_UP;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_END_SCREENSAVER;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_DELAY;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ENABLED;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ID;
@@ -9,34 +11,27 @@ import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPref
 
 import android.content.Intent;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.widget.ArrayAdapter;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import me.rapierxbox.shellyelevatev2.backbutton.FloatingBackButtonService;
-
 public class ScreenSaverManager {
     private long lastTouchEventTime;
-    private int screenSaverDelay;
     private boolean screenSaverRunning;
 
     private final ScheduledExecutorService scheduler;
 
     private final ScreenSaver[] screenSavers;
-    private int currentScreenSaverId;
-
-    private boolean screenSaverEnabled;
 
     public ScreenSaverManager() {
 
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleWithFixedDelay(this::checkLastTouchEventTime, 0, 1, TimeUnit.SECONDS);
 
-        lastTouchEventTime = 0;
-        screenSaverDelay = 45;
-        currentScreenSaverId = 0;
+        lastTouchEventTime = System.currentTimeMillis();
         screenSaverRunning = false;
 
         screenSavers = new ScreenSaver[]{
@@ -46,31 +41,12 @@ public class ScreenSaverManager {
         };
     }
 
-    public boolean onTouchEvent() {
+    public boolean onTouchEvent(MotionEvent event) {
         lastTouchEventTime = System.currentTimeMillis();
-        if (screenSaverRunning) {
+        if ((event == null || event.getAction() == ACTION_UP) && isScreenSaverRunning()) {
             stopScreenSaver();
-            return true;
         }
-        return false;
-    }
-
-    public void updateValues() {
-        stopScreenSaver();
-
-        screenSaverDelay = mSharedPreferences.getInt(SP_SCREEN_SAVER_DELAY, 45);
-        if (screenSaverDelay < 5) {
-            screenSaverDelay = 5;
-            mSharedPreferences.edit().putInt(SP_SCREEN_SAVER_DELAY, 5).apply();
-        }
-        currentScreenSaverId = mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0);
-        if (currentScreenSaverId < 0 || currentScreenSaverId >= screenSavers.length) {
-            currentScreenSaverId = 0;
-            mSharedPreferences.edit().putInt(SP_SCREEN_SAVER_ID, 0).apply();
-        }
-        screenSaverEnabled = mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
-        currentScreenSaverId = Math.min(Math.max(currentScreenSaverId, 0), screenSavers.length - 1);
-        lastTouchEventTime = System.currentTimeMillis();
+        return true;
     }
 
     public ArrayAdapter<String> getScreenSaverSpinnerAdapter() {
@@ -89,11 +65,11 @@ public class ScreenSaverManager {
     }
 
     public int getCurrentScreenSaverId() {
-        return currentScreenSaverId;
+        return mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0);
     }
 
     public boolean isScreenSaverEnabled() {
-        return screenSaverEnabled;
+        return mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
     }
 
     public void onDestroy() {
@@ -103,7 +79,7 @@ public class ScreenSaverManager {
     }
 
     private void checkLastTouchEventTime() {
-        if (System.currentTimeMillis() - lastTouchEventTime > screenSaverDelay * 1000L && screenSaverEnabled) {
+        if (System.currentTimeMillis() - lastTouchEventTime > mSharedPreferences.getInt(SP_SCREEN_SAVER_DELAY, 45) * 1000L && mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true)) {
             startScreenSaver();
         }
     }
@@ -112,12 +88,8 @@ public class ScreenSaverManager {
         if (!screenSaverRunning) {
             screenSaverRunning = true;
 
-            Intent backButtonIntent = new Intent(mApplicationContext, FloatingBackButtonService.class);
-            backButtonIntent.setAction(FloatingBackButtonService.PAUSE_BUTTON);
-            mApplicationContext.startService(backButtonIntent);
-
-            screenSavers[currentScreenSaverId].onStart(mApplicationContext);
-            Log.i("ShellyElevateV2", "Starting screen saver with id: " + currentScreenSaverId);
+            screenSavers[mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0)].onStart(mApplicationContext);
+            Log.i("ShellyElevateV2", "Starting screen saver with id: " + mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0));
 
             if (mMQTTServer.shouldSend()) {
                 mMQTTServer.publishSleeping(true);
@@ -128,13 +100,11 @@ public class ScreenSaverManager {
     public void stopScreenSaver() {
         if (screenSaverRunning) {
             screenSaverRunning = false;
-            screenSavers[currentScreenSaverId].onEnd(mApplicationContext);
-            lastTouchEventTime = System.currentTimeMillis();
-            Log.i("ShellyElevateV2", "Ending screen saver with id: " + currentScreenSaverId);
+            screenSavers[mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0)].onEnd(mApplicationContext);
+            mApplicationContext.sendBroadcast(new Intent(INTENT_END_SCREENSAVER));
 
-            Intent backButtonIntent = new Intent(mApplicationContext, FloatingBackButtonService.class);
-            backButtonIntent.setAction(FloatingBackButtonService.RESUME_BUTTON);
-            mApplicationContext.startService(backButtonIntent);
+            lastTouchEventTime = System.currentTimeMillis();
+            Log.i("ShellyElevateV2", "Ending screen saver with id: " + mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0));
 
             if (mMQTTServer.shouldSend()) {
                 mMQTTServer.publishSleeping(false);

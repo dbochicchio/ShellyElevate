@@ -7,19 +7,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.google.android.material.appbar.AppBarLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fitsSystemWindows="true">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:minHeight="?attr/actionBarSize" />
-
-    </com.google.android.material.appbar.AppBarLayout>
-
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -38,6 +25,57 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="24dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/backButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/back"
+                        android:textSize="18sp"/>
+                    <Button
+                        android:id="@+id/rebootButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/reboot"
+                        android:textSize="18sp"/>
+                    <Button
+                        android:id="@+id/exitButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/B_exit"
+                        android:textSize="18sp"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/deviceTypeLinearLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/device"
+                        android:textSize="18sp" />
+
+                    <Spinner
+                        android:id="@+id/deviceTypeSpinner"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:spinnerMode="dialog" />
+                </LinearLayout>
 
                 <Button
                     android:id="@+id/findURLButton"
@@ -176,6 +214,15 @@
                         android:layout_height="wrap_content"
                         android:spinnerMode="dialog" />
                 </LinearLayout>
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/wakeOnProximity"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/wake_on_proximity"
+                    android:textSize="18sp"
+                    tools:ignore="UseSwitchCompatOrMaterialXml" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/httpServerEnabled"
@@ -367,7 +414,6 @@
                     android:text="@string/lite_mode"
                     android:textSize="18sp"
                     tools:ignore="UseSwitchCompatOrMaterialXml" />
-
 
             </LinearLayout>
 
