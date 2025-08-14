@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
         localBroadcastManager.registerReceiver(settingsChangedBroadcastReceiver, IntentFilter(INTENT_SETTINGS_CHANGED))
         localBroadcastManager.registerReceiver(webviewJavascriptInjectorBroadcastReceiver, IntentFilter(INTENT_WEBVIEW_INJECT_JAVASCRIPT))
 
-        if (!ShellyElevateApplication.mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false))
+        if (!mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false))
             startActivity(Intent(this, SettingsActivity::class.java))
     }
 }
