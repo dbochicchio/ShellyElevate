@@ -247,12 +247,12 @@ class MainActivity : ComponentActivity() {
             }
 
             133 -> { // Shelly input button 2 - UP
-                mMQTTServer.publishButton(3)
+                mMQTTServer.publishButton(2)
                 return true
             }
 
             134 -> { // Shelly input button 2 - DOWN
-                mMQTTServer.publishButton(4)
+                mMQTTServer.publishButton(3)
                 return true
             }
 
