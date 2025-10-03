@@ -1,19 +1,59 @@
 package me.rapierxbox.shellyelevatev2.helper;
 
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_LIGHT_KEY;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_LIGHT_UPDATED;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_PROXIMITY_KEY;
+import static me.rapierxbox.shellyelevatev2.Constants.INTENT_PROXIMITY_UPDATED;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_WAKE_ON_PROXIMITY;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
-import static me.rapierxbox.shellyelevatev2.Constants.*;
 
+import android.content.Context;
+import android.content.Intent;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
+
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+
+import me.rapierxbox.shellyelevatev2.DeviceModel;
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication;
 
 
 public class DeviceSensorManager implements SensorEventListener {
+    private static final String TAG = "DeviceSensorManager";
     private float lastMeasuredLux = 0.0f;
+
+    private final Context context;
+
+    public DeviceSensorManager(Context ctx) {
+        context = ctx;
+
+        DeviceModel device = DeviceModel.getDevice(mSharedPreferences);
+        SensorManager sensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
+
+        // light sensor
+        Sensor lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+
+        // proximity sensor
+        Log.d("ShellyElevateApplication", "Has proximity sensor: " + device.hasProximitySensor);
+        if (device.hasProximitySensor) {
+            Sensor proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
+            if (proximitySensor != null) {
+                Log.d("ShellyElevateApplication", "Default proximity sensor: " + proximitySensor);
+                sensorManager.registerListener(this, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+            }
+        }
+    }
+
     public float getLastMeasuredLux() {
         return lastMeasuredLux;
     }
@@ -23,28 +63,33 @@ public class DeviceSensorManager implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() == Sensor.TYPE_LIGHT) {
-            lastMeasuredLux = event.values[0];
+        if (event == null) return;
+        Intent intent;
 
-            if (mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)) {
-                mDeviceHelper.setScreenBrightness(getScreenBrightnessFromLux(lastMeasuredLux));
-            }
-            if (mMQTTServer.shouldSend()) {
-                mMQTTServer.publishLux(lastMeasuredLux);
-            }
-        }
+        switch (event.sensor.getType()) {
+            case Sensor.TYPE_LIGHT:
+                lastMeasuredLux = event.values[0];
 
-        if (event.sensor.getType() == Sensor.TYPE_PROXIMITY) {
-            lastMeasuredDistance = event.values[0];
+                if (mMQTTServer.shouldSend()) {
+                    mMQTTServer.publishLux(lastMeasuredLux);
+                }
+                //Let everyone know we got a new light value
+                intent = new Intent(INTENT_LIGHT_UPDATED);
+                intent.putExtra(INTENT_LIGHT_KEY, lastMeasuredLux);
+                LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                break;
 
-            Log.d("DeviceSensorManager", "Received new proximity sensor value: " + event.values[0]);
-            if (mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, false)
-                    && lastMeasuredDistance <= 7.5f) {
-                mScreenSaverManager.stopScreenSaver();
-            }
-            if (mMQTTServer.shouldSend()) {
-                mMQTTServer.publishProximity(lastMeasuredDistance);
-            }
+            case Sensor.TYPE_PROXIMITY:
+                lastMeasuredDistance = event.values[0];
+
+                if (mMQTTServer.shouldSend()) {
+                    mMQTTServer.publishProximity(lastMeasuredDistance);
+                }
+                //Let everyone know we got a new proximity value
+                intent = new Intent(INTENT_PROXIMITY_UPDATED);
+                intent.putExtra(INTENT_PROXIMITY_KEY, lastMeasuredDistance);
+                LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                break;
         }
     }
 
@@ -53,12 +98,7 @@ public class DeviceSensorManager implements SensorEventListener {
         // Ignore
     }
 
-    public static int getScreenBrightnessFromLux(float lux) {
-        int minBrightness = mSharedPreferences.getInt(SP_MIN_BRIGHTNESS, 48);
-        if (lux >= 500) return 255;
-        if (lux <= 30) return minBrightness;
-
-        double slope = (255.0 - minBrightness) / (500.0 - 30.0);
-        return (int) (minBrightness + slope * (lux - 30));
+    public void onDestroy() {
+        ((SensorManager) context.getSystemService(Context.SENSOR_SERVICE)).unregisterListener(this);
     }
 }

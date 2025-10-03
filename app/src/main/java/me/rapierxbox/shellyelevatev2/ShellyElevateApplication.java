@@ -1,10 +1,9 @@
 package me.rapierxbox.shellyelevatev2;
 
-import static me.rapierxbox.shellyelevatev2.Constants.DEVICE_ATLANTIS;
+import static fi.iki.elonen.NanoHTTPD.*;
 import static me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED;
-import static me.rapierxbox.shellyelevatev2.Constants.hasProximitySensor;
 
 import android.app.Application;
 import android.content.Context;
@@ -14,10 +13,15 @@ import android.hardware.SensorManager;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
+import fi.iki.elonen.NanoHTTPD;
 import me.rapierxbox.shellyelevatev2.helper.DeviceHelper;
 import me.rapierxbox.shellyelevatev2.helper.DeviceSensorManager;
 import me.rapierxbox.shellyelevatev2.helper.MediaHelper;
+import me.rapierxbox.shellyelevatev2.helper.ScreenManager;
 import me.rapierxbox.shellyelevatev2.helper.SwipeHelper;
 import me.rapierxbox.shellyelevatev2.mqtt.MQTTServer;
 import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManager;
@@ -32,11 +36,14 @@ public class ShellyElevateApplication extends Application {
     public static MQTTServer mMQTTServer;
     public static MediaHelper mMediaHelper;
     public static ScreenSaverManager mScreenSaverManager;
+    public static ScreenManager mScreenManager;
 
     public static Context mApplicationContext;
     public static SharedPreferences mSharedPreferences;
 
     private static long applicationStartTime;
+    private ScheduledExecutorService httpWatchdog;
+    private int retryDelaySeconds = 5;
 
     @Override
     public void onCreate() {
@@ -50,20 +57,11 @@ public class ShellyElevateApplication extends Application {
         Log.i("ShellyElevateApplication", "Device: " + mSharedPreferences.getString(SP_DEVICE, "unconfigured"));
 
         mDeviceHelper = new DeviceHelper();
-        mScreenSaverManager = new ScreenSaverManager();
+        mScreenSaverManager = new ScreenSaverManager(this);
+        mScreenManager = new ScreenManager(this);
 
         // Sensors Init
-        mDeviceSensorManager = new DeviceSensorManager();
-        SensorManager sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        Sensor lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
-        sensorManager.registerListener(mDeviceSensorManager, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
-        if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_ATLANTIS)))) {
-            Sensor proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
-            Log.d("ShellyElevateApplication", "Default proximity sensor: " + proximitySensor);
-            sensorManager.registerListener(mDeviceSensorManager, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
-            Log.i("ShellyElevateApplication", "Registered proximity sensor for DeviceSensorHelper");
-        }
-
+        mDeviceSensorManager = new DeviceSensorManager(this);
 
         mSwipeHelper = new SwipeHelper();
         mShellyElevateJavascriptInterface = new ShellyElevateJavascriptInterface();
@@ -73,16 +71,50 @@ public class ShellyElevateApplication extends Application {
 
         mMQTTServer = new MQTTServer();
 
+        // HTTP Server
+        mHttpServer = new HttpServer();
+        httpWatchdog = Executors.newSingleThreadScheduledExecutor();
         if (mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true)) {
-            try {
-                mHttpServer.start();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            tryStartHttpServer();
+
+            httpWatchdog.scheduleAtFixedRate(() -> {
+                if (mHttpServer == null || !mHttpServer.isAlive()) {
+                    Log.w("ShellyElevateV2", "HTTP server not alive. Restarting...");
+                    tryStartHttpServer();
+                }
+            }, 10, 10, TimeUnit.SECONDS);
         }
+
+        mShellyElevateJavascriptInterface = new ShellyElevateJavascriptInterface();
+
+        // restore screen status
+        mScreenManager.setScreenOn(true);
+        mScreenSaverManager.stopScreenSaver();
 
         Log.i("ShellyElevateV2", "Application started");
     }
+
+    private void tryStartHttpServer() {
+        try {
+            if (mHttpServer == null) {
+                mHttpServer = new HttpServer();
+            }
+
+            mHttpServer.start(SOCKET_READ_TIMEOUT, false);
+            Log.i("ShellyElevateV2", "HTTP server started on port 8080");
+
+            // Reset exponential backoff delay
+            retryDelaySeconds = 5;
+        } catch (IOException e) {
+            Log.e("ShellyElevateV2", "Failed to start HTTP server. Retrying in " + retryDelaySeconds + "s...", e);
+
+            int delay = retryDelaySeconds;
+            retryDelaySeconds = Math.min(retryDelaySeconds * 2, 60); // Cap at 60s
+
+            httpWatchdog.schedule(this::tryStartHttpServer, delay, TimeUnit.SECONDS);
+        }
+    }
+
 
     public static long getApplicationStartTime() {
         return applicationStartTime;
@@ -91,12 +123,14 @@ public class ShellyElevateApplication extends Application {
     @Override
     public void onTerminate() {
         mHttpServer.onDestroy();
-        ((SensorManager) getSystemService(Context.SENSOR_SERVICE)).unregisterListener(mDeviceSensorManager);
-        mScreenSaverManager.onDestroy();
+        mDeviceSensorManager.onDestroy();
+
+        mScreenSaverManager.stopScreenSaver();
+        mScreenSaverManager.onDestroy(this);
+        mScreenManager.setScreenOn(true);
+
         mMQTTServer.onDestroy();
         mMediaHelper.onDestroy();
-
-        mDeviceHelper.setScreenOn(true);
 
         Log.i("ShellyElevateV2", "BYEEEEEEEEEEEEEEEEEEEE :)");
 

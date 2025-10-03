@@ -1,8 +1,9 @@
 package me.rapierxbox.shellyelevatev2.mqtt;
 
-import static me.rapierxbox.shellyelevatev2.Constants.DEVICE_STARGATE;
 import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED;
+import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_BUTTON_STATE;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_CONFIG_DEVICE;
+import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HELLO;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HOME_ASSISTANT_STATUS;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HUM_SENSOR;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_LUX_SENSOR;
@@ -17,14 +18,12 @@ import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_STATUS;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_SWIPE_EVENT;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_TEMP_SENSOR;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_WAKE_BUTTON;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_BROKER;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_DEVICE_ID;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_ENABLED;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PASSWORD;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PORT;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_USERNAME;
-import static me.rapierxbox.shellyelevatev2.Constants.hasProximitySensor;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
@@ -35,14 +34,20 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.util.Log;
 
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import org.eclipse.paho.mqttv5.client.IMqttToken;
 import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
+import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse;
 import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttException;
+import org.eclipse.paho.mqttv5.common.MqttMessage;
+import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -51,6 +56,8 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import me.rapierxbox.shellyelevatev2.DeviceModel;
 
 public class MQTTServer {
     private MqttClient mMqttClient;
@@ -92,33 +99,26 @@ public class MQTTServer {
     }
 
     public void checkCredsAndConnect() {
-        if (!mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false)) {
+        if (!isEnabled()) {
             return;
         }
 
-        validForConnection = !mSharedPreferences.getString(SP_MQTT_PASSWORD, "").isEmpty() &&
+        validForConnection =
+                !mSharedPreferences.getString(SP_MQTT_PASSWORD, "").isEmpty() &&
                 !mSharedPreferences.getString(SP_MQTT_USERNAME, "").isEmpty() &&
                 !mSharedPreferences.getString(SP_MQTT_BROKER, "").isEmpty();
 
         connect();
     }
-
-    public void disconnect() {
-        if (mMqttClient != null && mMqttClient.isConnected()) {
-            try {
-                deleteConfig();
-                mMqttClient.publish(parseTopic(MQTT_TOPIC_STATUS), "offline".getBytes(), 1, true);
-                mMqttClient.disconnect();
-
-                connected = false;
-            } catch (MqttException e) {
-                Log.e("MQTT", "Error disconnecting MQTT client", e);
-            }
-        }
-    }
+    private int currentBackoffSeconds = 2;
+    private static final int MAX_BACKOFF_SECONDS = 60;
 
     public void connect() {
-        if (validForConnection) {
+        if (!validForConnection) return;
+
+        Log.d("MQTT", "Connecting");
+
+        scheduler.execute(() -> {
             try {
                 mMqttConnectionsOptions.setUserName(mSharedPreferences.getString(SP_MQTT_USERNAME, ""));
                 mMqttConnectionsOptions.setPassword(mSharedPreferences.getString(SP_MQTT_PASSWORD, "").getBytes());
@@ -129,12 +129,52 @@ public class MQTTServer {
                 }
 
                 mMqttClient = new MqttClient(mSharedPreferences.getString(SP_MQTT_BROKER, "") + ":" + mSharedPreferences.getInt(SP_MQTT_PORT, 1883), clientId, mMemoryPersistence);
-                mMqttClient.setCallback(mShellyElevateMQTTCallback);
+                mMqttClient.setCallback(new org.eclipse.paho.mqttv5.client.MqttCallback() {
+                    @Override
+                    public void disconnected(MqttDisconnectResponse disconnectResponse) {
+                        Log.w("MQTT", "Disconnected: " + disconnectResponse.getReasonString());
+                        connected = false;
+                        scheduleReconnect(); // your backoff logic
+                    }
+
+                    @Override
+                    public void mqttErrorOccurred(MqttException exception) {
+                        Log.e("MQTT", "MQTT error occurred", exception);
+                    }
+
+                    @Override
+                    public void messageArrived(String topic, MqttMessage message) {
+                        mShellyElevateMQTTCallback.messageArrived(topic, message); // or handle it here
+                    }
+
+                    @Override
+                    public void deliveryComplete(IMqttToken token) {}
+
+                    @Override
+                    public void connectComplete(boolean reconnect, String serverURI) {
+                        Log.i("MQTT", "Connected to " + serverURI + ", reconnect: " + reconnect);
+                        connected = true;
+	                    try {
+		                    onConnected();
+	                    } catch (MqttException | JSONException e) {
+                            Log.e("MQTT", "onConnected failed: ", e);
+	                    }
+                    }
+
+                    @Override
+                    public void authPacketArrived(int reasonCode, MqttProperties properties) {
+                        // Not used by most, safe to ignore unless doing fancy auth
+                    }
+                });
+
+                // LWT
+                MqttMessage lwtMessage = new MqttMessage("offline".getBytes());
+                lwtMessage.setQos(1);
+                lwtMessage.setRetained(true);
+
+                mMqttConnectionsOptions.setWill(parseTopic(MQTT_TOPIC_STATUS), lwtMessage);
+
                 mMqttClient.connect(mMqttConnectionsOptions);
-
-                publishConfig();
-
-                mMqttClient.publish(parseTopic(MQTT_TOPIC_STATUS), "online".getBytes(), 1, true);
 
                 mMqttClient.subscribe("shellyelevatev2/#", 0);
                 mMqttClient.subscribe("shellyelevatev2/#", 1);
@@ -143,19 +183,47 @@ public class MQTTServer {
                 mMqttClient.subscribe(MQTT_TOPIC_HOME_ASSISTANT_STATUS, 0);
                 mMqttClient.subscribe(MQTT_TOPIC_HOME_ASSISTANT_STATUS, 1);
                 mMqttClient.subscribe(MQTT_TOPIC_HOME_ASSISTANT_STATUS, 2);
+            } catch (MqttException e) {
+                Log.e("MQTT", "Connect failed: ", e);
+                scheduleReconnect();
+            }
+        });
+    }
 
-                connected = true;
+    private void onConnected() throws MqttException, JSONException {
+        publishHello();
+        publishConfig();
 
-                publishTempAndHum();
-                publishRelay(mDeviceHelper.getRelay());
-                publishLux(mDeviceSensorManager.getLastMeasuredLux());
-                if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_STARGATE)))) {
-                    publishProximity(mDeviceSensorManager.getLastMeasuredDistance());
-                }
-                publishSleeping(mScreenSaverManager.isScreenSaverRunning());
+        mMqttClient.publish(parseTopic(MQTT_TOPIC_STATUS), "online".getBytes(), 1, true);
+        publishTempAndHum();
+        publishRelay(mDeviceHelper.getRelay());
+        publishLux(mDeviceSensorManager.getLastMeasuredLux());
+        if (DeviceModel.getDevice(mSharedPreferences).hasProximitySensor) {
+            publishProximity(mDeviceSensorManager.getLastMeasuredDistance());
+        }
+        publishSleeping(mScreenSaverManager.isScreenSaverRunning());
+    }
 
-            } catch (MqttException | JSONException e) {
-                Log.e("MQTT", "Error connecting:", e);
+    private void scheduleReconnect() {
+        int delay = currentBackoffSeconds;
+        currentBackoffSeconds = Math.min(currentBackoffSeconds * 2, MAX_BACKOFF_SECONDS);
+        Log.i("MQTT", "Retrying in " + delay + "s");
+        scheduler.schedule(this::connect, delay, TimeUnit.SECONDS);
+    }
+
+    public void disconnect() {
+        Log.d("MQTT", "Disconnecting");
+        if (mMqttClient != null && mMqttClient.isConnected()) {
+            try {
+                deleteConfig();
+                mMqttClient.publish(parseTopic(MQTT_TOPIC_STATUS), "offline".getBytes(), 1, true);
+                mMqttClient.disconnect();
+
+                connected = false;
+                currentBackoffSeconds = 2; // Reset backoff on manual disconnect
+
+            } catch (MqttException e) {
+                Log.e("MQTT", "Error disconnecting MQTT client", e);
             }
         }
     }
@@ -168,6 +236,32 @@ public class MQTTServer {
         return connected && mSharedPreferences.getBoolean(SP_MQTT_ENABLED, false);
     }
 
+    public void publishHello(){
+        if (this.shouldSend()) {
+            try {
+                var device = DeviceModel.getDevice(mSharedPreferences);
+                JSONObject json = new JSONObject();
+                json.put("name", mApplicationContext.getPackageName());
+                String version = "unknown";
+                try {
+                    PackageInfo pInfo = mApplicationContext.getPackageManager().getPackageInfo(mApplicationContext.getPackageName(), 0);
+                    version = pInfo.versionName; // e.g. "1.0.0"
+                } catch (PackageManager.NameNotFoundException e) {
+                    Log.e("MQTT", "Error getting app version", e);
+                }
+                json.put("version", version);
+
+                json.put("modelName", device.name());
+                json.put("proximity", device.hasProximitySensor ? "true":"false");
+
+                String payload = json.toString();
+                mMqttClient.publish(parseTopic(MQTT_TOPIC_HELLO), payload.getBytes(), 1, false);
+            } catch (JSONException | MqttException e) {
+                Log.e("MQTT", "Error publishing hello", e);
+            }
+
+        }
+    }
     public void publishTempAndHum() {
         if (this.shouldSend()) {
             this.publishTemp((float) mDeviceHelper.getTemperature());
@@ -204,6 +298,16 @@ public class MQTTServer {
             mMqttClient.publish(parseTopic(MQTT_TOPIC_PROXIMITY_SENSOR), String.valueOf(distance).getBytes(), 1, false);
         } catch (MqttException e) {
             Log.e("MQTT", "Error publishing proximity", e);
+        }
+    }
+
+    public void publishButton(int number) {
+        try {
+            long epochMillis = System.currentTimeMillis();
+            String payload = "{\"last_update\": " + epochMillis + "}";
+            mMqttClient.publish(parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + number, payload.getBytes(), 1, false);
+        } catch (MqttException e) {
+            Log.e("MQTT", "Error publishing button state", e);
         }
     }
 
@@ -278,7 +382,7 @@ public class MQTTServer {
         luxSensorPayload.put("unique_id", clientId + "_lux");
         components.put(clientId + "_lux", luxSensorPayload);
 
-        if (Boolean.TRUE.equals(hasProximitySensor.get(mSharedPreferences.getString(SP_DEVICE, DEVICE_STARGATE)))) {
+        if (DeviceModel.getDevice(mSharedPreferences).hasProximitySensor) {
             JSONObject proximitySensorPayload = new JSONObject();
             proximitySensorPayload.put("p", "sensor");
             proximitySensorPayload.put("name", "Proximity");
