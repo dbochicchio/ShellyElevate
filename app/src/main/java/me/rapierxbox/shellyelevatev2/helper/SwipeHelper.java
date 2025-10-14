@@ -15,22 +15,23 @@ public class SwipeHelper{
     public float minDist = 250.0F;
 
     public boolean onTouchEvent(MotionEvent event){
-        switch (event.getAction()){
-            case MotionEvent.ACTION_DOWN:
-                touchStartY = event.getY();
-                touchStartEventTime = event.getEventTime();
-            case MotionEvent.ACTION_UP:
-                float deltaY = Math.abs(touchStartY - event.getY());
-                float deltaT = Math.abs(touchStartEventTime - event.getEventTime());
-                float velocity = deltaY / deltaT;
-                if (velocity > minVel && deltaY > minDist){
-                    if (mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)) {
-                        mDeviceHelper.setRelay(!mDeviceHelper.getRelay());
+        if (mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)) {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    touchStartY = event.getY();
+                    touchStartEventTime = event.getEventTime();
+                case MotionEvent.ACTION_UP:
+                    float deltaY = Math.abs(touchStartY - event.getY());
+                    float deltaT = Math.abs(touchStartEventTime - event.getEventTime());
+                    float velocity = deltaY / deltaT;
+                    if (velocity > minVel && deltaY > minDist) {
+                        var numRelay = 0;
+                        mDeviceHelper.setRelay(numRelay, !mDeviceHelper.getRelay(numRelay));
+                        if (mMQTTServer.shouldSend()) {
+                            mMQTTServer.publishSwipeEvent();
+                        }
                     }
-                    if (mMQTTServer.shouldSend()) {
-                        mMQTTServer.publishSwipeEvent();
-                    }
-                }
+            }
         }
         return true;
     }

@@ -4,6 +4,7 @@ import static fi.iki.elonen.NanoHTTPD.*;
 import static me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_SWITCH_ON_SWIPE;
 
 import android.app.Application;
 import android.content.Context;
@@ -54,7 +55,8 @@ public class ShellyElevateApplication extends Application {
         mApplicationContext = getApplicationContext();
         mSharedPreferences = getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE);
 
-        Log.i("ShellyElevateApplication", "Device: " + mSharedPreferences.getString(SP_DEVICE, "unconfigured"));
+        var deviceModel = DeviceModel.getReportedDevice();
+        Log.i("ShellyElevateApplication", "Device: " + deviceModel.modelName);
 
         mDeviceHelper = new DeviceHelper();
         mScreenSaverManager = new ScreenSaverManager(this);
@@ -63,7 +65,9 @@ public class ShellyElevateApplication extends Application {
         // Sensors Init
         mDeviceSensorManager = new DeviceSensorManager(this);
 
-        mSwipeHelper = new SwipeHelper();
+        if (mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true))
+            mSwipeHelper = new SwipeHelper();
+
         mShellyElevateJavascriptInterface = new ShellyElevateJavascriptInterface();
 
         mMediaHelper = new MediaHelper();
@@ -77,7 +81,7 @@ public class ShellyElevateApplication extends Application {
         if (mSharedPreferences.getBoolean(SP_HTTP_SERVER_ENABLED, true)) {
             tryStartHttpServer();
 
-            httpWatchdog.scheduleAtFixedRate(() -> {
+            httpWatchdog.scheduleWithFixedDelay(() -> {
                 if (mHttpServer == null || !mHttpServer.isAlive()) {
                     Log.w("ShellyElevateV2", "HTTP server not alive. Restarting...");
                     tryStartHttpServer();
@@ -114,7 +118,6 @@ public class ShellyElevateApplication extends Application {
             httpWatchdog.schedule(this::tryStartHttpServer, delay, TimeUnit.SECONDS);
         }
     }
-
 
     public static long getApplicationStartTime() {
         return applicationStartTime;

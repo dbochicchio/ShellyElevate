@@ -44,9 +44,18 @@ public class MediaHelper {
         mediaPlayerEffects.setDataSource(mApplicationContext, uri);
         mediaPlayerEffects.prepareAsync();
     }
+
+    public void resumeOrPauseMusic(){
+        if (mediaPlayerMusic.isPlaying())
+            pauseMusic();
+        else
+            resumeMusic();
+    }
+
     public void pauseMusic() {
         mediaPlayerMusic.pause();
     }
+
     public void resumeMusic() {
         mediaPlayerMusic.start();
     }

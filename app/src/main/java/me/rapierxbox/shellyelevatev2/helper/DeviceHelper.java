@@ -2,7 +2,6 @@ package me.rapierxbox.shellyelevatev2.helper;
 
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
 
 import android.provider.Settings;
 import android.util.Log;
@@ -12,19 +11,23 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 import me.rapierxbox.shellyelevatev2.DeviceModel;
 
 public class DeviceHelper {
-    private static final String[] possibleRelayFiles = {
-            "/sys/devices/platform/leds/green_enable",
-            "/sys/devices/platform/leds/red_enable",
-            "/sys/class/strelay/relay1",
-            "/sys/class/strelay/relay2"
+
+    private static final String[][] possibleRelayFiles = {
+            {
+                    "/sys/devices/platform/leds/green_enable",
+                    "/sys/class/strelay/relay1"
+            },
+            {
+                    "/sys/devices/platform/leds/red_enable",
+                    "/sys/class/strelay/relay2"
+            }
     };
+
     private static final String tempAndHumFile = "/sys/devices/platform/sht3x-user/sht3x_access";
     private static final String[] screenBrightnessFiles = {
             "/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness",
@@ -32,7 +35,6 @@ public class DeviceHelper {
             "/sys/devices/platform/backlight/backlight/backlight/brightness"
             };
     private String screenBrightnessFile;
-    private final String[] relayFiles;
     private boolean screenOn = true;
     private int lastScreenBrightness;
 
@@ -48,18 +50,6 @@ public class DeviceHelper {
             Log.wtf(TAG, "no brightness file found");
             screenBrightnessFile = "";
         }
-
-        List<String> relayFileList = new ArrayList<>();
-        for (String relayFile : possibleRelayFiles) {
-            if (new File(relayFile).exists()) {
-                relayFileList.add(relayFile);
-            }
-        }
-        if (relayFileList.isEmpty()) {
-            Log.wtf(TAG, "no relay files found");
-            relayFileList.add("");
-        }
-        relayFiles = relayFileList.toArray(new String[0]);
     }
 
     public void setScreenOn(boolean on) {
@@ -78,8 +68,10 @@ public class DeviceHelper {
 
     public void setScreenBrightness(int brightness) {
         lastScreenBrightness = brightness;
-
         if (!screenOn) return;
+
+        if (mMQTTServer.shouldSend())
+            mMQTTServer.publishScreenBrightness(lastScreenBrightness);
 
         writeScreenBrightness(brightness);
     }
@@ -101,41 +93,80 @@ public class DeviceHelper {
         return Integer.parseInt(sanitizeString(readFileContent(screenBrightnessFile)));
     }
 
-    public boolean getRelay() {
+    public boolean getRelay(int num) {
         boolean relayState = false;
-        for (String relayFile : relayFiles) {
+
+        // Safety check
+        if (num < 0 || num >= possibleRelayFiles.length) return false;
+
+        for (String relayFile : possibleRelayFiles[num]) {
             relayState |= readFileContent(relayFile).contains("1");
         }
+
         return relayState;
     }
 
-    public void setRelay(boolean state) {
-        for (String relayFile : relayFiles) {
+
+    public void setRelay(int num, boolean state) {
+        // Safety check
+        if (num < 0 || num >= possibleRelayFiles.length) return;
+
+        for (String relayFile : possibleRelayFiles[num]) {
             writeFileContent(relayFile, state ? "1" : "0");
         }
+
         if (mMQTTServer.shouldSend()) {
-            mMQTTServer.publishRelay(state);
+            mMQTTServer.publishRelay(num, state);
         }
     }
 
     public double getTemperature() {
-        String[] tempSplit = readFileContent(tempAndHumFile).split(":");
-        double temp = (Double.parseDouble(tempSplit[1]) * 175.0 / 65535.0) - 45.0;
+        try
+        {
+            var content = readFileContent(tempAndHumFile);
+            if (content == null || content == "") return -999;
 
-        temp += DeviceModel.getDevice(mSharedPreferences).temperatureOffset;
-        return Math.round(temp * 10.0) / 10.0;
+            String[] tempSplit = content.split(":");
+            double temp = (Double.parseDouble(tempSplit[1]) * 175.0 / 65535.0) - 45.0;
+
+            temp += DeviceModel.getReportedDevice().temperatureOffset;
+            return Math.round(temp * 10.0) / 10.0;
+        } catch (Exception e) {
+            Log.d("TAG", "Error while reading temperature: " + e);
+            return -999;
+        }
     }
 
     public double getHumidity() {
-        String[] humiditySplit = readFileContent(tempAndHumFile).split(":");
-        double humidity = Double.parseDouble(humiditySplit[0]) * 100.0 / 65535.0;
+        try {
+            var content = readFileContent(tempAndHumFile);
+            if (content == null || content == "") return -999;
 
-        humidity += DeviceModel.getDevice(mSharedPreferences).humidityOffset;
+            String[] humiditySplit = content.split(":");
+            double humidity = Double.parseDouble(humiditySplit[0]) * 100.0 / 65535.0;
 
-        return Math.round(humidity);
+            humidity += DeviceModel.getReportedDevice().humidityOffset;
+
+            return Math.round(humidity);
+        } catch (Exception e) {
+            Log.d("TAG", "Error while reading humidity: " + e);
+            return -999;
+        }
+    }
+
+    public static boolean fileExists(String filePath) {
+        try {
+            File file = new File(filePath);
+            return file.exists() && file.isFile();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String readFileContent(String filePath) {
+       if (!fileExists(filePath))
+            return null;
+
         StringBuilder content = new StringBuilder();
         try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
             String line;

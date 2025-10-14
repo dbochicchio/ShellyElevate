@@ -15,7 +15,6 @@ import static me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_MIN_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 
-import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -97,9 +96,9 @@ public class ScreenManager extends BroadcastReceiver {
             desiredBrightness = fixedBrightness();
         }
 
-        Log.d(TAG, "Desired brightness: " + desiredBrightness + ", targetBrightness: " + targetBrightness + ", lastUpdateTime: " + lastUpdateTime + ", currentBrightness: " + currentBrightness);
-
         if (desiredBrightness != targetBrightness) {
+            Log.d(TAG, "Desired brightness: " + desiredBrightness + ", targetBrightness: " + targetBrightness + ", lastUpdateTime: " + lastUpdateTime + ", currentBrightness: " + currentBrightness);
+
             targetBrightness = desiredBrightness;
             lastUpdateTime = System.currentTimeMillis();
             fadeHandler.removeCallbacks(fadeRunnable);
@@ -109,7 +108,10 @@ public class ScreenManager extends BroadcastReceiver {
     }
 
     private void checkAndApplyBrightness() {
-        if (System.currentTimeMillis() - lastUpdateTime >= HYSTERESIS_DELAY_MS) {
+        // force in case of brightness 0
+        var force = currentBrightness != 0 && targetBrightness == 0;
+
+        if (System.currentTimeMillis() - lastUpdateTime >= HYSTERESIS_DELAY_MS || force) {
             if (currentBrightness == -1) {
                 currentBrightness = targetBrightness;
                 mDeviceHelper.setScreenBrightness(currentBrightness);

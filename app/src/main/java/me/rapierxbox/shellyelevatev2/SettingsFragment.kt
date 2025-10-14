@@ -114,7 +114,7 @@ class SettingsFragment : Fragment() {
 
     private fun loadValues() {
         //device
-        val device = DeviceModel.getDevice(mSharedPreferences)
+        val device = DeviceModel.getReportedDevice()
 
         for (i in 0 until binding.deviceTypeSpinner.adapter.count) {
             if (binding.deviceTypeSpinner.adapter.getItem(i) == device) {

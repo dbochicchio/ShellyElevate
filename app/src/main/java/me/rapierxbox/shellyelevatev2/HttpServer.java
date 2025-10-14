@@ -2,7 +2,7 @@ package me.rapierxbox.shellyelevatev2;
 
 import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED;
 import static me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_INJECT_JAVASCRIPT;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE;
+import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HELLO;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
@@ -15,6 +15,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.util.Log;
 import android.widget.Toast;
@@ -88,8 +90,29 @@ public class HttpServer extends NanoHTTPD {
                 }
                 return newFixedLengthResponse(Response.Status.OK, "application/json", jsonResponse.toString());
             } else if (uri.equals("/")) {
-                return newFixedLengthResponse(Response.Status.OK, "application/json",
-                        "{\"message\": \"ShellyElevateV2 by RapierXbox\"}");
+                JSONObject json = new JSONObject();
+
+                try {
+                    json.put("name", mApplicationContext.getPackageName());
+
+                    String version = "unknown";
+                    try {
+                        PackageInfo pInfo = mApplicationContext.getPackageManager()
+                                .getPackageInfo(mApplicationContext.getPackageName(), 0);
+                        version = pInfo.versionName;
+                    } catch (PackageManager.NameNotFoundException ignored) {}
+
+                    json.put("version", version);
+                    var device = DeviceModel.getReportedDevice();
+                    json.put("modelName", device.name());
+                    json.put("proximity", device.hasProximitySensor ? "true" : "false");
+                    json.put("numOfButtons", device.buttons);
+                    json.put("numOfInputs", device.inputs);
+                } catch (JSONException e) {
+                    Log.e("MQTT", "Error publishing hello", e);
+                }
+
+                return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString());
             }
         } catch (JSONException | ResponseException | IOException e) {
             Log.e("HttpServer", "Error handling request", e);
@@ -229,23 +252,42 @@ public class HttpServer extends NanoHTTPD {
         String uri = session.getUri();
         JSONObject jsonResponse = new JSONObject();
 
-        DeviceModel device = DeviceModel.getDevice(mSharedPreferences);
+        // Parse query parameters
+        Map<String, String> params = new HashMap<>();
+        try {
+            session.parseBody(new HashMap<>());
+            params.putAll(session.getParms());
+        } catch (IOException | ResponseException e) {
+            Log.e("HttpServer", "Invalid parameters", e);
+        }
+
+        DeviceModel device = DeviceModel.getReportedDevice();
 
         switch (uri.replace("/device/", "")) {
             case "relay":
                 if (method.equals(Method.GET)) {
+                    var num = GetNumParameter(params, 0);
+                    if (num == -999) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Invalid num");
                     jsonResponse.put("success", true);
-                    jsonResponse.put("state", mDeviceHelper.getRelay());
+                    jsonResponse.put("state", mDeviceHelper.getRelay(num));
                 } else if (method.equals(Method.POST)) {
+                    var num = GetNumParameter(params, -1);
+                    if (num == -999) return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Invalid num");
+
                     Map<String, String> files = new HashMap<>();
                     session.parseBody(files);
                     String postData = files.get("postData");
                     assert postData != null;
                     JSONObject jsonObject = new JSONObject(postData);
 
-                    mDeviceHelper.setRelay(jsonObject.getBoolean("state"));
+                    // num as json body
+                    if (num == -1 && jsonObject.getInt("num")>=0)
+                        num = jsonObject.getInt("num");
+
+                    mDeviceHelper.setRelay(num, jsonObject.getBoolean("state"));
+
                     jsonResponse.put("success", true);
-                    jsonResponse.put("state", mDeviceHelper.getRelay());
+                    jsonResponse.put("state", mDeviceHelper.getRelay(num));
                 } else {
                     jsonResponse.put("success", false);
                     jsonResponse.put("error", "Invalid request method");
@@ -331,6 +373,20 @@ public class HttpServer extends NanoHTTPD {
         }
 
         return newFixedLengthResponse(jsonResponse.getBoolean("success") ? Response.Status.OK : Response.Status.INTERNAL_ERROR, "application/json", jsonResponse.toString());
+    }
+
+    private static int GetNumParameter(Map<String, String> params, int defaultValue) {
+        // Get ?num=1
+        String numParam = params.get("num");
+        if (numParam != null) {
+            try {
+                return Integer.parseInt(numParam);
+            } catch (NumberFormatException e) {
+                // handle invalid number
+                return -999;
+            }
+        }
+        return defaultValue; // Default
     }
 
     public void onDestroy() {

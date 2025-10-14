@@ -33,11 +33,11 @@ public class ShellyElevateJavascriptInterface {
         return mSharedPreferences.getBoolean(SP_EXTENDED_JAVASCRIPT_INTERFACE, false);
     }
 
-    public String getDevice() {return DeviceModel.getDevice(mSharedPreferences).modelName;}
+    public String getDevice() {return DeviceModel.getReportedDevice().modelName;}
 
     // ========= GETTERS =========
-    @JavascriptInterface public boolean getRelay() {
-        return mDeviceHelper.getRelay();
+    @JavascriptInterface public boolean getRelay(int num) {
+        return mDeviceHelper.getRelay(num);
     }
 
     @JavascriptInterface public int getLux() {
@@ -86,8 +86,8 @@ public class ShellyElevateJavascriptInterface {
 
     // ========= SETTERS =========
 
-    @JavascriptInterface public void setRelay(boolean state) {
-        mDeviceHelper.setRelay(state);
+    @JavascriptInterface public void setRelay(int num, boolean state) {
+        mDeviceHelper.setRelay(num, state);
     }
 
     @JavascriptInterface public void sleep() {
@@ -117,15 +117,29 @@ public class ShellyElevateJavascriptInterface {
         bindings.put(eventName, jsFunctionName);
     }
 
-    private void triggerEvent(String eventName) {
+    private void triggerEvent(String eventName, Object... params) {
         if (eJSaEnabled()) {
             Log.d("ShellyElevateV2", "ShellyElevateJavascriptInterface.notifyWebViewEvent: " + eventName);
             String jsFunction = bindings.get(eventName);
             if (jsFunction != null) {
-                sendJavascript(jsFunction);
-            }
-            else
+                String joinedParams = "";
+                if (params != null && params.length > 0) {
+                    StringBuilder sb = new StringBuilder();
+                    for (Object p : params) {
+                        if (p instanceof String) {
+                            sb.append("'").append(p.toString().replace("'", "\\'")).append("'");
+                        } else {
+                            sb.append(p);
+                        }
+                        sb.append(",");
+                    }
+                    joinedParams = sb.substring(0, sb.length() - 1);
+                }
+                Log.d("ShellyElevateV2", "Sending JS: " + jsFunction + "(" + joinedParams + ");");
+                sendJavascript(jsFunction + "(" + joinedParams + ");");
+            } else {
                 Log.d("ShellyElevateV2", "JS EventName binding not found: " + eventName);
+            }
         }
     }
 
@@ -153,5 +167,9 @@ public class ShellyElevateJavascriptInterface {
 
     public void onMotion() {
         triggerEvent("onMotion");
+    }
+
+    public void onButtonPressed(int i) {
+        triggerEvent("onButtonPressed", i);
     }
 }

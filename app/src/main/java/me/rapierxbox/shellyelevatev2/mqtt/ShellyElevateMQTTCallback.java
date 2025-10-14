@@ -39,8 +39,15 @@ public class ShellyElevateMQTTCallback implements MqttCallback {
     @Override
     public void messageArrived(String topic, MqttMessage message) {
         switch (topic.replace(mMQTTServer.getClientId(), "%s")) {
+            case MQTT_TOPIC_UPDATE:
+	            mMQTTServer.publishStatus();
+	            break;
+                // IMPRV: new logic to handle infinite relays
             case MQTT_TOPIC_RELAY_COMMAND:
-                mDeviceHelper.setRelay(new String(message.getPayload(), StandardCharsets.UTF_8).contains("ON"));
+                mDeviceHelper.setRelay(0, new String(message.getPayload(), StandardCharsets.UTF_8).contains("ON"));
+                break;
+            case MQTT_TOPIC_RELAY_COMMAND + "_1":
+                mDeviceHelper.setRelay(1, new String(message.getPayload(), StandardCharsets.UTF_8).contains("ON"));
                 break;
             case MQTT_TOPIC_REFRESH_WEBVIEW_BUTTON:
                 Intent intent = new Intent(INTENT_SETTINGS_CHANGED);
@@ -61,7 +68,6 @@ public class ShellyElevateMQTTCallback implements MqttCallback {
                     } catch (IOException e) {
                         Log.e("MQTT", "Error rebooting:", e);
                     }
-
                 } else {
                     Toast.makeText(mApplicationContext, "Please wait %s seconds before rebooting".replace("%s",String.valueOf(20-deltaTime) ), Toast.LENGTH_LONG).show();
                 }
