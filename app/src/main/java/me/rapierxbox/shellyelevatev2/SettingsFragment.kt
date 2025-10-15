@@ -13,7 +13,6 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.core.content.edit
@@ -25,7 +24,6 @@ import me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED
 import me.rapierxbox.shellyelevatev2.Constants.SHARED_PREFERENCES_NAME
 import me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS
-import me.rapierxbox.shellyelevatev2.Constants.SP_DEVICE
 import me.rapierxbox.shellyelevatev2.Constants.SP_EXTENDED_JAVASCRIPT_INTERFACE
 import me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_IGNORE_SSL_ERRORS
@@ -103,24 +101,14 @@ class SettingsFragment : Fragment() {
             }
         }, viewLifecycleOwner)
 
-        binding.deviceTypeSpinner.adapter = ArrayAdapter(
-            requireContext(), android.R.layout.simple_spinner_item, DeviceModel.entries
-        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-
         binding.screenSaverType.adapter = getScreenSaverSpinnerAdapter()
         loadValues()
         setupListeners()
     }
 
     private fun loadValues() {
-        //device
         val device = DeviceModel.getReportedDevice()
 
-        for (i in 0 until binding.deviceTypeSpinner.adapter.count) {
-            if (binding.deviceTypeSpinner.adapter.getItem(i) == device) {
-                binding.deviceTypeSpinner.setSelection(i)
-            }
-        }
         //Functional mode
         binding.liteMode.isChecked = mSharedPreferences.getBoolean(SP_LITE_MODE, false)
 
@@ -250,23 +238,11 @@ class SettingsFragment : Fragment() {
 
             return@setOnTouchListener false
         }
-
-        binding.deviceTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
-                binding.wakeOnProximity.isVisible = binding.screenSaver.isChecked && (parent.adapter.getItem(position) as DeviceModel).hasProximitySensor
-            }
-
-            override fun onNothingSelected(AdapterView: AdapterView<*>?) {
-            }
-        }
     }
 
     private fun saveSettings() {
         requireContext().getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE).edit {
-
-            val selectedDevice = binding.deviceTypeSpinner.selectedItem as DeviceModel
-            // device
-            putString(SP_DEVICE, selectedDevice.modelName)
+            val device = DeviceModel.getReportedDevice()
 
             //Functional mode
             putBoolean(SP_LITE_MODE, binding.liteMode.isChecked)
@@ -295,7 +271,7 @@ class SettingsFragment : Fragment() {
             putBoolean(SP_SCREEN_SAVER_ENABLED, binding.screenSaver.isChecked)
             putInt(SP_SCREEN_SAVER_DELAY, binding.screenSaverDelay.text.toString().toIntOrNull() ?: SCREEN_SAVER_DEFAULT_DELAY)
             putInt(SP_SCREEN_SAVER_ID, binding.screenSaverType.selectedItemPosition)
-            putBoolean(SP_WAKE_ON_PROXIMITY, binding.wakeOnProximity.isChecked && selectedDevice.hasProximitySensor)
+            putBoolean(SP_WAKE_ON_PROXIMITY, binding.wakeOnProximity.isChecked && device.hasProximitySensor)
             putInt(SP_SCREEN_SAVER_MIN_BRIGHTNESS, binding.screensaverMinBrightness.value.toInt())
 
             //Http Server

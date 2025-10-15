@@ -166,14 +166,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    // inject currentUrl
-                    val failedUrl = ServiceHelper.getWebviewUrl()
-                    val js = "window.originalUrl = '${failedUrl.replace("'", "\\'")}';"
-                    view?.evaluateJavascript(js, null)
-                }
-
                 override fun onReceivedError(
                     view: WebView,
                     request: WebResourceRequest?,
@@ -204,6 +196,20 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     return super.shouldInterceptRequest(view, request)
+                }
+
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val url = request?.url?.toString() ?: return false
+
+                    if (url.startsWith("shellyelevate:")) {
+                        val action = url.removePrefix("shellyelevate:")
+                        when (action) {
+                            "reload" -> view?.loadUrl(ServiceHelper.getWebviewUrl())
+                            "offline" -> view?.loadUrl(offlineFile )
+                        }
+                        return true // prevent WebView from trying to load it
+                    }
+                    return false
                 }
             }
             webChromeClient = WebChromeClient()

@@ -54,21 +54,12 @@
 
 <script>
     document.addEventListener("DOMContentLoaded", () => {
-        // Store original URL in case of reload
-        if (!window.originalUrl) {
-            window.originalUrl = document.referrer || '/';
-        }
-
-        console.log('Offline view loading for ' + window.originalUrl);
+        console.log('Offline view loading');
 
         const retryButton = document.getElementById('retryBtn');
 
         function retry() {
-            if (window.originalUrl) {
-                window.location.href = window.originalUrl;
-            } else {
-                window.location.reload();
-            }
+            window.location.href = 'shellyelevate:reload';
         }
 
         // Retry button click
@@ -88,7 +79,7 @@
         // Fallback polling in case online event missed
         setInterval(() => {
             if (navigator.onLine) retry();
-        }, 5000);
+        }, 15000);
 
     });
 </script>

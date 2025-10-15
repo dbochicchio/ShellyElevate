@@ -21,27 +21,6 @@
             android:orientation="vertical"
             android:padding="24dp">
 
-            <LinearLayout
-                android:id="@+id/deviceTypeLinearLayout"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/device"
-                    android:textSize="18sp" />
-
-                <Spinner
-                    android:id="@+id/deviceTypeSpinner"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:spinnerMode="dialog" />
-            </LinearLayout>
-
             <Button
                 android:id="@+id/findURLButton"
                 android:layout_width="wrap_content"
