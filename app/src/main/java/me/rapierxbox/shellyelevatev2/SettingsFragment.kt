@@ -30,6 +30,7 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_IGNORE_SSL_ERRORS
 import me.rapierxbox.shellyelevatev2.Constants.SP_LITE_MODE
 import me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_BROKER
+import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_CLIENTID
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PASSWORD
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_PORT
@@ -53,6 +54,7 @@ import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
 import me.rapierxbox.shellyelevatev2.screensavers.ScreenSaverManager
 import java.io.IOException
 import java.net.NetworkInterface
+import java.util.UUID
 
 class SettingsFragment : Fragment() {
 
@@ -123,6 +125,9 @@ class SettingsFragment : Fragment() {
         binding.mqttPort.setText(mSharedPreferences.getInt(SP_MQTT_PORT, MQTT_DEFAULT_PORT).toString())
         binding.mqttUsername.setText(mSharedPreferences.getString(SP_MQTT_USERNAME, ""))
         binding.mqttPassword.setText(mSharedPreferences.getString(SP_MQTT_PASSWORD, ""))
+        binding.mqttClientId.setText(mSharedPreferences.getString(SP_MQTT_CLIENTID,
+            "shellyelevate-" + UUID.randomUUID().toString().replace("-".toRegex(), "")
+                .substring(2, 6)))
 
         //Switch
         binding.switchOnSwipe.isChecked = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
@@ -165,6 +170,7 @@ class SettingsFragment : Fragment() {
         binding.mqttPortLayout.isVisible = binding.mqttEnabled.isChecked
         binding.mqttUsernameLayout.isVisible = binding.mqttEnabled.isChecked
         binding.mqttPasswordLayout.isVisible = binding.mqttEnabled.isChecked
+        binding.mqttClientIdLayout.isVisible = binding.mqttEnabled.isChecked
 
         mSharedPreferences.edit { putBoolean("settingEverShown", true) }
     }
@@ -219,6 +225,7 @@ class SettingsFragment : Fragment() {
             binding.mqttPortLayout.isVisible = isChecked
             binding.mqttUsernameLayout.isVisible = isChecked
             binding.mqttPasswordLayout.isVisible = isChecked
+            binding.mqttClientIdLayout.isVisible = isChecked
         }
 
         binding.httpServerEnabled.setOnCheckedChangeListener { _, isChecked ->
@@ -257,6 +264,7 @@ class SettingsFragment : Fragment() {
             putString(SP_MQTT_BROKER, binding.mqttBroker.text.toString())
             putString(SP_MQTT_USERNAME, binding.mqttUsername.text.toString())
             putString(SP_MQTT_PASSWORD, binding.mqttPassword.text.toString())
+            putString(SP_MQTT_CLIENTID, binding.mqttClientId.text.toString())
             putInt(SP_MQTT_PORT, binding.mqttPort.text.toString().toIntOrNull() ?: MQTT_DEFAULT_PORT)
 
             //Switch

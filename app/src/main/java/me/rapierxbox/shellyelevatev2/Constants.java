@@ -38,7 +38,7 @@ public class Constants {
     public static final String SP_MQTT_PORT = "mqttPort";
     public static final String SP_MQTT_USERNAME = "mqttUsername";
     public static final String SP_MQTT_PASSWORD = "mqttPassword";
-    public static final String SP_MQTT_DEVICE_ID = "mqttDeviceId";
+    public static final String SP_MQTT_CLIENTID = "mqttDeviceId";
 
     //ScreenSaver intents
     public static final String INTENT_SCREEN_SAVER_STARTED = "me.rapierxbox.shellyelevatev2.SCREEN_SAVER_STARTED";

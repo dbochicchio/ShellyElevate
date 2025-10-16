@@ -58,10 +58,10 @@ public class MQTTServer {
     }
 
     private void setupClientId() {
-        clientId = mSharedPreferences.getString(SP_MQTT_DEVICE_ID, "shellywalldisplay");
+        clientId = mSharedPreferences.getString(SP_MQTT_CLIENTID, "shellywalldisplay");
         if (clientId.equals("shellyelevate") || clientId.equals("shellywalldisplay") || clientId.length() <= 2) {
             clientId = "shellyelevate-" + UUID.randomUUID().toString().replaceAll("-", "").substring(2, 6);
-            mSharedPreferences.edit().putString(SP_MQTT_DEVICE_ID, clientId).apply();
+            mSharedPreferences.edit().putString(SP_MQTT_CLIENTID, clientId).apply();
         }
     }
 

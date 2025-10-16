@@ -289,6 +289,31 @@
                 tools:ignore="UseSwitchCompatOrMaterialXml" />
 
             <LinearLayout
+                android:id="@+id/mqttClientIdLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="48dp"
+                android:layout_marginTop="24dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Client ID"
+                    android:textSize="18sp" />
+
+                <EditText
+                    android:id="@+id/mqttClientId"
+                    android:layout_width="200dp"
+                    android:layout_height="wrap_content"
+                    android:hint="your custom client id"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:textSize="18sp" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/mqttBrokerLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
