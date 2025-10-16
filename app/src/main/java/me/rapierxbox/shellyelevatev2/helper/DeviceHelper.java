@@ -55,11 +55,7 @@ public class DeviceHelper {
     public void setScreenOn(boolean on) {
         screenOn = on;
 
-        if (screenOn) {
-            writeScreenBrightness(lastScreenBrightness);
-        } else {
-            writeScreenBrightness(0);
-        }
+        setScreenBrightnessInternal(screenOn ? lastScreenBrightness: 0);
     }
 
     public boolean getScreenOn() {
@@ -68,10 +64,11 @@ public class DeviceHelper {
 
     public void setScreenBrightness(int brightness) {
         lastScreenBrightness = brightness;
-        if (!screenOn) return;
+        setScreenBrightnessInternal(brightness);
+    }
 
-        if (mMQTTServer.shouldSend())
-            mMQTTServer.publishScreenBrightness(lastScreenBrightness);
+    private void setScreenBrightnessInternal(int brightness){
+        mMQTTServer.publishScreenBrightness(brightness);
 
         writeScreenBrightness(brightness);
     }

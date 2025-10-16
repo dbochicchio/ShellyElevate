@@ -131,6 +131,7 @@ public class ShellyElevateApplication extends Application {
         mScreenSaverManager.stopScreenSaver();
         mScreenSaverManager.onDestroy(this);
         mScreenManager.setScreenOn(true);
+        mScreenManager.onDestroy();
 
         mMQTTServer.onDestroy();
         mMediaHelper.onDestroy();

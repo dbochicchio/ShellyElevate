@@ -40,7 +40,6 @@ public class ScreenSaverManager extends BroadcastReceiver {
     }
 
     public ScreenSaverManager(Context ctx) {
-
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleWithFixedDelay(this::checkLastTouchEventTime, 0, 1, TimeUnit.SECONDS);
 
@@ -123,7 +122,9 @@ public class ScreenSaverManager extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, false)) {
-            if (screenSaverRunning && intent.getFloatExtra(INTENT_PROXIMITY_KEY, 100.0f) <= 7.5f) {
+            var value = intent.getFloatExtra(INTENT_PROXIMITY_KEY, 100.0f);
+            Log.i("ShellyElevateV2", "Proximity Event: " + value);
+            if (screenSaverRunning && value <= 7.5f) {
                 stopScreenSaver();
             }
         }

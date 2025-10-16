@@ -6,11 +6,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.ConnectivityManager
-import android.net.ConnectivityManager.*
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.http.SslError
 import android.os.Bundle
 import android.util.Log
@@ -28,7 +23,11 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresPermission
+import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_PROXIMITY_UPDATED
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_SCREEN_SAVER_STARTED
 import me.rapierxbox.shellyelevatev2.Constants.INTENT_SCREEN_SAVER_STOPPED
@@ -56,77 +55,91 @@ class MainActivity : ComponentActivity() {
     private var clicksButtonRight: Int = 0
     private var clicksButtonLeft: Int = 0
 
-    private var settingsChangedBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+    // === SETTINGS CHANGED RECEIVER ===
+    private val settingsChangedBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            Log.d("MainActivity", "settingsChangedBroadcastReceiver invoked")
-            binding.myWebView.loadUrl(ServiceHelper.getWebviewUrl())
-        }
-    }
-
-    private var webviewJavascriptInjectorBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            intent?.getStringExtra("javascript")?.let { extra ->
-                Log.d("MainActivity", "webviewJavascriptInjectorBroadcastReceiver invoked: $extra")
-                binding.myWebView.evaluateJavascript(extra, null)
+            lifecycleScope.launch(Dispatchers.Default) {
+                try {
+                    val webviewUrl = ServiceHelper.getWebviewUrl() // heavy computation if any
+                    withContext(Dispatchers.Main) {
+                        Log.d("MainActivity", "Reloading WebView due to settings change: $webviewUrl")
+                        binding.myWebView.loadUrl(webviewUrl)
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error reloading WebView on settings change", e)
+                }
             }
         }
     }
 
-    private val screenStateReceiver : BroadcastReceiver = object : BroadcastReceiver() {
+    // === WEBVIEW JS INJECTOR RECEIVER ===
+    private val webviewJavascriptInjectorBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val javascriptCode = intent?.getStringExtra("javascript") ?: return
+            lifecycleScope.launch(Dispatchers.Default) {
+                try {
+                    val processedJs = javascriptCode.trim() // any heavy processing
+                    withContext(Dispatchers.Main) {
+                        Log.d("MainActivity", "Injecting JS into WebView: $processedJs")
+                        binding.myWebView.evaluateJavascript(processedJs, null)
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error injecting JS", e)
+                }
+            }
+        }
+    }
+
+    // === SCREEN STATE RECEIVER ===
+    private val screenStateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
-            val event = when (action) {
-                INTENT_TURN_SCREEN_ON -> mShellyElevateJavascriptInterface.onScreenOn()
-                INTENT_TURN_SCREEN_OFF -> mShellyElevateJavascriptInterface.onScreenOff()
-                INTENT_SCREEN_SAVER_STARTED-> mShellyElevateJavascriptInterface.onScreensaverOn()
-                INTENT_SCREEN_SAVER_STOPPED -> mShellyElevateJavascriptInterface.onScreensaverOff()
-                INTENT_PROXIMITY_UPDATED -> mShellyElevateJavascriptInterface.onMotion()
-                else -> return
-            }
 
-            Log.d("MainActivity", "screenStateReceiver invoked: " + intent.action)
+            lifecycleScope.launch(Dispatchers.Default) {
+                try {
+                    when (action) {
+                        INTENT_TURN_SCREEN_ON -> mShellyElevateJavascriptInterface.onScreenOn()
+                        INTENT_TURN_SCREEN_OFF -> mShellyElevateJavascriptInterface.onScreenOff()
+                        INTENT_SCREEN_SAVER_STARTED -> mShellyElevateJavascriptInterface.onScreensaverOn()
+                        INTENT_SCREEN_SAVER_STOPPED -> mShellyElevateJavascriptInterface.onScreensaverOff()
+                        INTENT_PROXIMITY_UPDATED -> mShellyElevateJavascriptInterface.onMotion()
+                    }
+
+                    // UI logging only on main thread
+                    withContext(Dispatchers.Main) {
+                        Log.d("MainActivity", "screenStateReceiver invoked: $action")
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error handling screen state: $action", e)
+                }
+            }
         }
     }
 
     var offlineFile = "file:///android_asset/offline.html"
-
-    private val networkCallback = object : NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            runOnUiThread { binding.myWebView.loadUrl(ServiceHelper.getWebviewUrl()) }
-        }
-
-        override fun onLost(network: Network) {
-            runOnUiThread { binding.myWebView.loadUrl(ServiceHelper.getWebviewUrl()) }
-        }
-    }
-
     @SuppressLint("ClickableViewAccessibility")
     private fun setupSettingsButtons() {
         binding.settingButtonOverlayRight.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                clicksButtonRight++
-            }
-            return@setOnTouchListener false
+            if (event.action == MotionEvent.ACTION_DOWN) clicksButtonRight++
+            false
         }
-
         binding.settingButtonOverlayLeft.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
-                if (clicksButtonRight == 10) {
-                    clicksButtonLeft++
-                } else {
-                    clicksButtonRight = 0
-                    clicksButtonLeft = 0
-                }
-
-                if (clicksButtonLeft == 10) {
-                    startActivity(Intent(this, SettingsActivity::class.java))
-
-                    clicksButtonRight = 0
-                    clicksButtonLeft = 0
-                }
+                if (clicksButtonRight == 10) clicksButtonLeft++ else resetClicks()
+                if (clicksButtonLeft == 10) startSettingsActivity()
             }
-            return@setOnTouchListener false
+            false
         }
+    }
+
+    private fun startSettingsActivity() {
+        resetClicks()
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    private fun resetClicks() {
+        clicksButtonLeft = 0
+        clicksButtonRight = 0
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -172,7 +185,7 @@ class MainActivity : ComponentActivity() {
                     error: WebResourceError?
                 ) {
                     // Load a local HTML file from assets
-                    view.loadUrl(offlineFile)
+                    runOnUiThread {view.loadUrl(offlineFile)}
                 }
 
                 // Catch HTTP errors (like 404, 500)
@@ -181,7 +194,7 @@ class MainActivity : ComponentActivity() {
                     request: WebResourceRequest,
                     errorResponse: WebResourceResponse?
                 ) {
-                    view.loadUrl(offlineFile)
+                    runOnUiThread { view.loadUrl(offlineFile)}
                 }
 
                 override fun shouldInterceptRequest(
@@ -204,28 +217,54 @@ class MainActivity : ComponentActivity() {
                     if (url.startsWith("shellyelevate:")) {
                         val action = url.removePrefix("shellyelevate:")
                         when (action) {
-                            "reload" -> view?.loadUrl(ServiceHelper.getWebviewUrl())
-                            "offline" -> view?.loadUrl(offlineFile )
+                            "reload" -> {
+                                runOnUiThread {view?.loadUrl(ServiceHelper.getWebviewUrl()) }
+                            }
+                            "offline" -> {
+                                runOnUiThread { view?.loadUrl(offlineFile ) }
+                            }
+                            "settings" -> {
+                                startSettingsActivity()
+                            }
                         }
                         return true // prevent WebView from trying to load it
                     }
+
                     return false
                 }
             }
             webChromeClient = WebChromeClient()
             addJavascriptInterface(mShellyElevateJavascriptInterface, "ShellyElevate")
-            loadUrl(ServiceHelper.getWebviewUrl())
+            post { loadUrl(ServiceHelper.getWebviewUrl()) }
         }
+    }
+
+    private fun registerBroadcastReceivers() {
+        LocalBroadcastManager.getInstance(this).apply {
+            registerReceiver(settingsChangedBroadcastReceiver, IntentFilter(INTENT_SETTINGS_CHANGED))
+            registerReceiver(webviewJavascriptInjectorBroadcastReceiver, IntentFilter(INTENT_WEBVIEW_INJECT_JAVASCRIPT))
+            registerReceiver(screenStateReceiver, IntentFilter().apply {
+                addAction(INTENT_TURN_SCREEN_ON)
+                addAction(INTENT_TURN_SCREEN_OFF)
+                addAction(INTENT_SCREEN_SAVER_STARTED)
+                addAction(INTENT_SCREEN_SAVER_STOPPED)
+                addAction(INTENT_PROXIMITY_UPDATED)
+            })
+        }
+    }
+
+    private fun broadcastProximity() {
+        Thread {
+            val intent = Intent(INTENT_PROXIMITY_UPDATED)
+            intent.putExtra(Constants.INTENT_PROXIMITY_KEY, 100f)
+            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        }.start()
     }
 
     override fun onResume() {
         super.onResume()
 
         hideSystemBars()
-
-        //This will reload the screen after the screenSaver.
-        if (binding.myWebView.originalUrl?.toHttpUrlOrNull() != ServiceHelper.getWebviewUrl().toHttpUrlOrNull())
-            binding.myWebView.loadUrl(ServiceHelper.getWebviewUrl())
 
         // In case screen is already on and app resumes
         mShellyElevateJavascriptInterface.onScreenOn()
@@ -245,52 +284,50 @@ class MainActivity : ComponentActivity() {
         setContentView(binding.root) // Set the content view using binding.root
 
         configureWebView()
-        //registerNetworkListener()
         setupSettingsButtons()
+        setupSwipeOverlay()
 
-        binding.swipeDetectionOverlay.setOnTouchListener { _, event ->
-            mSwipeHelper?.onTouchEvent(event)
-            mScreenSaverManager.onTouchEvent(event)
-            binding.myWebView.onTouchEvent(event)
-
-            return@setOnTouchListener true
-        }
-
-        LocalBroadcastManager.getInstance(this).apply {
-            registerReceiver(settingsChangedBroadcastReceiver, IntentFilter(INTENT_SETTINGS_CHANGED))
-            registerReceiver(webviewJavascriptInjectorBroadcastReceiver, IntentFilter(INTENT_WEBVIEW_INJECT_JAVASCRIPT))
-            registerReceiver(screenStateReceiver, IntentFilter().apply {
-                addAction(INTENT_TURN_SCREEN_ON)
-                addAction(INTENT_TURN_SCREEN_OFF)
-                addAction(INTENT_SCREEN_SAVER_STARTED)
-                addAction(INTENT_SCREEN_SAVER_STOPPED)
-                addAction(INTENT_PROXIMITY_UPDATED)
-            })
-        }
+        registerBroadcastReceivers()
 
         if (!mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false))
             startActivity(Intent(this, SettingsActivity::class.java))
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        val keyEventDown = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
-        binding.myWebView.dispatchKeyEvent(keyEventDown)
-
-        return super.onKeyDown(keyCode, event)
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupSwipeOverlay() {
+        binding.swipeDetectionOverlay.setOnTouchListener { _, event ->
+            // Do NOT call WebView.onTouchEvent manually
+            mSwipeHelper?.onTouchEvent(event)
+            mScreenSaverManager.onTouchEvent(event)
+            false // let event propagate naturally
+        }
     }
 
-    // === Called when a key is released ===
-    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
-        Log.d("MainActivity", "Button pressed: $keyCode - Event: $event")
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Log everything for debugging
+        //Log.d("MainActivity", "dispatchKeyEvent: $event")
 
-        // dispatch to webview
-        val keyEventUp = KeyEvent(KeyEvent.ACTION_UP, keyCode)
-        binding.myWebView.dispatchKeyEvent(keyEventUp)
+        var handled = false
+        // Handle here before WebView
+        if (event.action == KeyEvent.ACTION_UP) {
+            handled = onKeyUpInternal(event.keyCode, event)
+        }
+
+        // Then always forward to WebView
+        binding.myWebView.dispatchKeyEvent(event)
+
+        // Return true if you handled it, otherwise let Activity super handle it
+        return handled || super.dispatchKeyEvent(event)
+    }
+
+    private fun onKeyUpInternal(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        Log.d("MainActivity", "Key pressed: $keyCode - Event: $event")
 
         // handle internally
         when (keyCode) {
             140 -> { // Special power-like button (release)
-                event?.let {
+                event.let {
                     val duration = it.eventTime - it.downTime
                     if (duration >= 3000) {
                         // long press -> reboot or confirm
@@ -307,12 +344,12 @@ class MainActivity : ComponentActivity() {
             }
 
             141 -> { // Switch 1
-                switchInput(0, event?.action == KeyEvent.ACTION_UP)
+                switchInput(0, event.action == KeyEvent.ACTION_UP)
                 return true
             }
 
             142 -> { // Switch 2
-                switchInput(1, event?.action == KeyEvent.ACTION_UP)
+                switchInput(1, event.action == KeyEvent.ACTION_UP)
                 return true
             }
 
@@ -337,14 +374,13 @@ class MainActivity : ComponentActivity() {
             }
 
             135 -> { // Proximity detected
-                //Let everyone know we are starting the screensaver
-                LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext)
-                    .sendBroadcast(Intent(INTENT_PROXIMITY_UPDATED))
-                return super.onKeyUp(keyCode, event)
+                //Let everyone know we are stopping the screensaver
+                broadcastProximity()
+                return true
             }
 
             136 -> { // Proximity left
-                return super.onKeyUp(keyCode, event)
+                return true
             }
 
             // MEDIA EVENTS
