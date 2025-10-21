@@ -1,18 +1,8 @@
 package me.rapierxbox.shellyelevatev2.screensavers;
 
 import static android.view.MotionEvent.ACTION_UP;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_END_SCREENSAVER;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_PROXIMITY_KEY;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_PROXIMITY_UPDATED;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SCREEN_SAVER_STARTED;
-import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SCREEN_SAVER_STOPPED;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_DELAY;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ENABLED;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ID;
-import static me.rapierxbox.shellyelevatev2.Constants.SP_WAKE_ON_PROXIMITY;
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mMQTTServer;
-import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences;
+import static me.rapierxbox.shellyelevatev2.Constants.*;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -27,33 +17,63 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication;
+
+/**
+ * Handles automatic screensaver start/stop logic and proximity-based wake.
+ */
 public class ScreenSaverManager extends BroadcastReceiver {
+
+    private static final String TAG = "ScreenSaverManager";
+
+    private final Context appContext;
+    private final ScheduledExecutorService scheduler;
+    private final ScreenSaver[] screenSavers;
+
     private long lastTouchEventTime;
     private boolean screenSaverRunning;
 
-    private final ScheduledExecutorService scheduler;
-
-    private final ScreenSaver[] screenSavers;
-
     public static ScreenSaver[] getAvailableScreenSavers() {
-        return new ScreenSaver[]{new ScreenOffScreenSaver(), new DigitalClockScreenSaver(), new DigitalClockAndDateScreenSaver()};
+        return new ScreenSaver[]{
+                new ScreenOffScreenSaver(),
+                new DigitalClockScreenSaver(),
+                new DigitalClockAndDateScreenSaver()
+        };
     }
 
     public ScreenSaverManager(Context ctx) {
-        scheduler = Executors.newScheduledThreadPool(1);
+        this.appContext = ctx.getApplicationContext();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.screenSavers = getAvailableScreenSavers();
+        this.lastTouchEventTime = System.currentTimeMillis();
+        this.screenSaverRunning = false;
+
+        // Periodic idle check
         scheduler.scheduleWithFixedDelay(this::checkLastTouchEventTime, 0, 1, TimeUnit.SECONDS);
 
-        lastTouchEventTime = System.currentTimeMillis();
-        screenSaverRunning = false;
+        // Register proximity receiver
+        LocalBroadcastManager.getInstance(appContext)
+                .registerReceiver(this, new IntentFilter(INTENT_PROXIMITY_UPDATED));
 
-        screenSavers = getAvailableScreenSavers();
+        Log.i(TAG, "ScreenSaverManager initialized");
+    }
 
-        LocalBroadcastManager.getInstance(ctx).registerReceiver(this, new IntentFilter(INTENT_PROXIMITY_UPDATED));
+    public void onDestroy() {
+        try {
+            LocalBroadcastManager.getInstance(appContext).unregisterReceiver(this);
+        } catch (Exception e) {
+            Log.w(TAG, "Receiver already unregistered", e);
+        }
+
+        if (!scheduler.isShutdown()) scheduler.shutdownNow();
+        Log.i(TAG, "ScreenSaverManager destroyed");
     }
 
     public boolean onTouchEvent(MotionEvent event) {
         lastTouchEventTime = System.currentTimeMillis();
-        if ((event == null || event.getAction() == ACTION_UP) && isScreenSaverRunning()) {
+        if (event == null) return true;
+
+        if (event.getAction() == ACTION_UP && isScreenSaverRunning()) {
             stopScreenSaver();
         }
         return true;
@@ -63,70 +83,88 @@ public class ScreenSaverManager extends BroadcastReceiver {
         return screenSaverRunning;
     }
 
+    public ScreenSaver getCurrentScreenSaver() {
+        if (ShellyElevateApplication.mSharedPreferences == null)
+            return screenSavers[0];
+
+        int id = getCurrentScreenSaverId();
+        return screenSavers[Math.max(0, Math.min(id, screenSavers.length - 1))];
+    }
+
+
     public int getCurrentScreenSaverId() {
-        return mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0);
+        return ShellyElevateApplication.mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0);
     }
 
     public boolean isScreenSaverEnabled() {
-        return mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
-    }
-
-    public void onDestroy(Context ctx) {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdown();
-        }
-
-        LocalBroadcastManager.getInstance(ctx).unregisterReceiver(this);
+        return ShellyElevateApplication.mSharedPreferences != null &&
+                ShellyElevateApplication.mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
     }
 
     private void checkLastTouchEventTime() {
-        if (System.currentTimeMillis() - lastTouchEventTime > mSharedPreferences.getInt(SP_SCREEN_SAVER_DELAY, 45) * 1000L && mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true)) {
+        var prefs = ShellyElevateApplication.mSharedPreferences;
+        if (prefs == null) return;
+
+        long delay = prefs.getInt(SP_SCREEN_SAVER_DELAY, 45) * 1000L;
+        boolean enabled = prefs.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
+
+        if (!enabled || screenSaverRunning) return;
+
+        if (System.currentTimeMillis() - lastTouchEventTime > delay) {
             startScreenSaver();
         }
     }
 
     public void startScreenSaver() {
-        if (!screenSaverRunning) {
-            screenSaverRunning = true;
+        if (screenSaverRunning || !isScreenSaverEnabled()) return;
 
-            screenSavers[mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0)].onStart(mApplicationContext);
-            Log.i("ShellyElevateV2", "Starting screen saver with id: " + mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0));
+        screenSaverRunning = true;
+        ScreenSaver saver = getCurrentScreenSaver();
+        saver.onStart(appContext);
+        Log.i(TAG, "Starting screensaver: " + saver.getClass().getSimpleName());
 
-            if (mMQTTServer.shouldSend()) {
-                mMQTTServer.publishSleeping(true);
-            }
+        var mqtt = ShellyElevateApplication.mMQTTServer;
+        if (mqtt != null && mqtt.shouldSend()) mqtt.publishSleeping(true);
 
-            //Let everyone know we are starting the screensaver
-            LocalBroadcastManager.getInstance(mApplicationContext).sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STARTED));
-        }
+        LocalBroadcastManager.getInstance(appContext)
+                .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STARTED));
     }
 
     public void stopScreenSaver() {
-        if (screenSaverRunning) {
-            screenSaverRunning = false;
-            screenSavers[mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0)].onEnd(mApplicationContext);
-            mApplicationContext.sendBroadcast(new Intent(INTENT_END_SCREENSAVER));
+        if (!screenSaverRunning) return;
 
-            lastTouchEventTime = System.currentTimeMillis();
-            Log.i("ShellyElevateV2", "Ending screen saver with id: " + mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0));
+        screenSaverRunning = false;
+        ScreenSaver saver = getCurrentScreenSaver();
+        saver.onEnd(appContext);
 
-            if (mMQTTServer.shouldSend()) {
-                mMQTTServer.publishSleeping(false);
-            }
+        appContext.sendBroadcast(new Intent(INTENT_END_SCREENSAVER));
+        lastTouchEventTime = System.currentTimeMillis();
 
-            //Let everyone know we are stopping the screensaver
-            LocalBroadcastManager.getInstance(mApplicationContext).sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STOPPED));
-        }
+        Log.i(TAG, "Stopping screensaver: " + saver.getClass().getSimpleName());
+
+        var mqtt = ShellyElevateApplication.mMQTTServer;
+        if (mqtt != null && mqtt.shouldSend()) mqtt.publishSleeping(false);
+
+        LocalBroadcastManager.getInstance(appContext)
+                .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STOPPED));
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, false)) {
-            var value = intent.getFloatExtra(INTENT_PROXIMITY_KEY, 100.0f);
-            Log.i("ShellyElevateV2", "Proximity Event: " + value);
-            if (screenSaverRunning && value <= 7.5f) {
-                stopScreenSaver();
-            }
+        float maxProximitySensorValue = mDeviceSensorManager.getMaxProximitySensorValue();
+        float proximity = intent.getFloatExtra(INTENT_PROXIMITY_KEY, maxProximitySensorValue);
+        Log.i(TAG, "Proximity event: " + proximity + " - Value: " + proximity);
+
+        var mqtt = ShellyElevateApplication.mMQTTServer;
+        if (mqtt != null && mqtt.shouldSend()) mqtt.publishProximity(proximity);
+
+        var prefs = ShellyElevateApplication.mSharedPreferences;
+        if (prefs == null) return;
+
+        boolean wakeOnProximity = prefs.getBoolean(SP_WAKE_ON_PROXIMITY, false);
+        float threshold = 0.5f; // 0.5 cm buffer
+        if (wakeOnProximity && screenSaverRunning && proximity < maxProximitySensorValue - threshold) {
+            stopScreenSaver();
         }
     }
 }

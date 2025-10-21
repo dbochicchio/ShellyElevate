@@ -14,7 +14,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -45,9 +44,7 @@ import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mShellyElevateJava
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
 import me.rapierxbox.shellyelevatev2.databinding.MainActivityBinding
 import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
-
 
 class MainActivity : ComponentActivity() {
     private lateinit var binding: MainActivityBinding // Declare the binding object
@@ -179,14 +176,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                override fun onReceivedError(
+/*               override fun onReceivedError(
                     view: WebView,
                     request: WebResourceRequest?,
                     error: WebResourceError?
                 ) {
                     // Load a local HTML file from assets
                     runOnUiThread {view.loadUrl(offlineFile)}
-                }
+                }*/
 
                 // Catch HTTP errors (like 404, 500)
                 override fun onReceivedHttpError(
@@ -256,7 +253,7 @@ class MainActivity : ComponentActivity() {
     private fun broadcastProximity() {
         Thread {
             val intent = Intent(INTENT_PROXIMITY_UPDATED)
-            intent.putExtra(Constants.INTENT_PROXIMITY_KEY, 100f)
+            intent.putExtra(Constants.INTENT_PROXIMITY_KEY, 0f) // assume it's always the minimum
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
         }.start()
     }

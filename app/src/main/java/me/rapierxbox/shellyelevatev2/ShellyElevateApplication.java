@@ -49,6 +49,7 @@ public class ShellyElevateApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        Thread.setDefaultUncaughtExceptionHandler(new CrashHandler(this));
 
         applicationStartTime = System.currentTimeMillis();
 
@@ -129,7 +130,7 @@ public class ShellyElevateApplication extends Application {
         mDeviceSensorManager.onDestroy();
 
         mScreenSaverManager.stopScreenSaver();
-        mScreenSaverManager.onDestroy(this);
+        mScreenSaverManager.onDestroy();
         mScreenManager.setScreenOn(true);
         mScreenManager.onDestroy();
 

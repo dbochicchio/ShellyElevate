@@ -57,7 +57,8 @@ public class DeviceSensorManager implements SensorEventListener {
         if (device.hasProximitySensor) {
             Sensor proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
             if (proximitySensor != null) {
-                Log.d(TAG, "Default proximity sensor: " + proximitySensor);
+                maxProximitySensorValue = proximitySensor.getMaximumRange();
+                Log.d(TAG, "Default proximity sensor: " + proximitySensor + " - Max: " + maxProximitySensorValue);
                 sensorManager.registerListener(this, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
             }
         }
@@ -69,6 +70,9 @@ public class DeviceSensorManager implements SensorEventListener {
 
     private float lastMeasuredDistance = 0.0f;
     public float getLastMeasuredDistance() { return lastMeasuredDistance; }
+
+    private float maxProximitySensorValue = 1.0f;
+    public float getMaxProximitySensorValue() { return maxProximitySensorValue;}
 
     @Override
     public void onSensorChanged(SensorEvent event) {
@@ -106,10 +110,6 @@ public class DeviceSensorManager implements SensorEventListener {
 
             case Sensor.TYPE_PROXIMITY:
                 lastMeasuredDistance = event.values[0];
-
-                if (mMQTTServer.shouldSend()) {
-                    mMQTTServer.publishProximity(lastMeasuredDistance);
-                }
 
                 //Let everyone know we got a new proximity value
                 intent = new Intent(INTENT_PROXIMITY_UPDATED);

@@ -14,6 +14,8 @@ import static me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_MIN_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -31,7 +33,7 @@ public class ScreenManager extends BroadcastReceiver {
 
     private static final String TAG = "ScreenManager";
     private static final long HYSTERESIS_DELAY_MS = 3000L; // 3 seconds
-    private static final long FADE_DURATION_MS = 1000L;
+    public static final long FADE_DURATION_MS = 1000L;
 
     public static final int MIN_BRIGHTNESS_DEFAULT = 48;
     public static final int DEFAULT_BRIGHTNESS = 255;
@@ -150,7 +152,12 @@ public class ScreenManager extends BroadcastReceiver {
                 float lux = intent.getFloatExtra(INTENT_LIGHT_KEY, 0.0f);
                 if (Float.isNaN(lux) || lux < 0f) lux = 0f; // sanitize
                 lastMeasuredLux = lux;
-                updateBrightness();
+
+                // update brightness when lux changes only if automatic bri is enabled to prevent too many request
+                // TODO: implement some kind of debounce to prevent too many calls
+                if (automaticBrightness())
+                    updateBrightness();
+
                 break;
         }
     }
@@ -252,35 +259,5 @@ public class ScreenManager extends BroadcastReceiver {
         if (v < min) return min;
         if (v > max) return max;
         return v;
-    }
-
-    /**
-     * Minimal BrightnessAnimator wrapper expected by the class.
-     */
-    static class BrightnessAnimator {
-        private ValueAnimator animator;
-
-        void animate(int from, int to, IntConsumer onUpdate) {
-            cancel();
-            animator = ValueAnimator.ofInt(from, to);
-            animator.setDuration(Math.max(0, ScreenManager.FADE_DURATION_MS));
-            animator.addUpdateListener(animation -> {
-                int value = (Integer) animation.getAnimatedValue();
-                onUpdate.accept(value);
-            });
-            animator.start();
-        }
-
-        void cancel() {
-            if (animator != null) {
-                animator.cancel();
-                animator = null;
-            }
-        }
-    }
-
-    @FunctionalInterface
-    interface IntConsumer {
-        void accept(int value);
     }
 }
