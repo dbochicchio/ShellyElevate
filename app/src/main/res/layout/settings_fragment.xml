@@ -280,6 +280,15 @@
                 tools:ignore="UseSwitchCompatOrMaterialXml" />
 
             <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/mediaEnabled"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Media Enabled"
+                android:textSize="18sp"
+                tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/mqttEnabled"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

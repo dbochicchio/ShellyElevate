@@ -8,6 +8,9 @@ public class Constants {
     public static final String SP_LITE_MODE = "liteMode";
     public static final String SP_SETTINGS_EVER_SHOWN = "settingEverShown";
 
+    //Media SP keys
+    public static final String SP_MEDIA_ENABLED = "mediaEnabled";
+
     //IO SP Keys
     public static final String SP_SWITCH_ON_SWIPE = "switchOnSwipe";
 

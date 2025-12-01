@@ -110,6 +110,10 @@ public class ShellyElevateJavascriptInterface {
         mSharedPreferences.edit().putInt(SP_SCREEN_SAVER_ID, id).apply();
     }
 
+	@JavascriptInterface public void keepScreenAlive(boolean keepAlive) {
+		mScreenSaverManager.keepAlive(keepAlive);
+	}
+
     // ========= EVENTS FUNCTION =========
     @JavascriptInterface
     public void bind(String eventName, String jsFunctionName) {

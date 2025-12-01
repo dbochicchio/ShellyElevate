@@ -72,7 +72,6 @@ public class ShellyElevateApplication extends Application {
         mShellyElevateJavascriptInterface = new ShellyElevateJavascriptInterface();
 
         mMediaHelper = new MediaHelper();
-        mHttpServer = new HttpServer();
 
         mMQTTServer = new MQTTServer();
 

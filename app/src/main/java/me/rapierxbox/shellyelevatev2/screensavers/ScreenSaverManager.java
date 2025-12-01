@@ -32,6 +32,7 @@ public class ScreenSaverManager extends BroadcastReceiver {
 
     private long lastTouchEventTime;
     private boolean screenSaverRunning;
+	private volatile boolean keepAliveFlag = false;
 
     public static ScreenSaver[] getAvailableScreenSavers() {
         return new ScreenSaver[]{
@@ -91,7 +92,6 @@ public class ScreenSaverManager extends BroadcastReceiver {
         return screenSavers[Math.max(0, Math.min(id, screenSavers.length - 1))];
     }
 
-
     public int getCurrentScreenSaverId() {
         return ShellyElevateApplication.mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0);
     }
@@ -101,19 +101,35 @@ public class ScreenSaverManager extends BroadcastReceiver {
                 ShellyElevateApplication.mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
     }
 
-    private void checkLastTouchEventTime() {
-        var prefs = ShellyElevateApplication.mSharedPreferences;
-        if (prefs == null) return;
+	private void checkLastTouchEventTime() {
+		var prefs = ShellyElevateApplication.mSharedPreferences;
+		if (prefs == null) return;
 
-        long delay = prefs.getInt(SP_SCREEN_SAVER_DELAY, 45) * 1000L;
-        boolean enabled = prefs.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
+		long delay = prefs.getInt(SP_SCREEN_SAVER_DELAY, 45) * 1000L;
+		boolean enabled = prefs.getBoolean(SP_SCREEN_SAVER_ENABLED, true);
 
-        if (!enabled || screenSaverRunning) return;
+		// NEW: skip idle check if keepAlive is active
+		if (keepAliveFlag || !enabled || screenSaverRunning) return;
 
-        if (System.currentTimeMillis() - lastTouchEventTime > delay) {
-            startScreenSaver();
-        }
-    }
+		if (System.currentTimeMillis() - lastTouchEventTime > delay) {
+			startScreenSaver();
+		}
+	}
+
+	public void keepAlive(boolean keepAlive) {
+		this.keepAliveFlag = keepAlive;
+		if (keepAlive) {
+			Log.i(TAG, "KeepAlive enabled: screensaver will not start");
+			// If saver is already running, stop it immediately
+			if (screenSaverRunning) {
+				stopScreenSaver();
+			}
+		} else {
+			Log.i(TAG, "KeepAlive disabled: screensaver logic resumes");
+			// Reset idle timer so saver doesn't start instantly
+			lastTouchEventTime = System.currentTimeMillis();
+		}
+	}
 
     public void startScreenSaver() {
         if (screenSaverRunning || !isScreenSaverEnabled()) return;

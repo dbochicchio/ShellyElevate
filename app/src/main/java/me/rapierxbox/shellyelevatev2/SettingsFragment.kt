@@ -28,6 +28,7 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_EXTENDED_JAVASCRIPT_INTERFACE
 import me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_IGNORE_SSL_ERRORS
 import me.rapierxbox.shellyelevatev2.Constants.SP_LITE_MODE
+import me.rapierxbox.shellyelevatev2.Constants.SP_MEDIA_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_BROKER
 import me.rapierxbox.shellyelevatev2.Constants.SP_MQTT_CLIENTID
@@ -131,6 +132,9 @@ class SettingsFragment : Fragment() {
 
         //Switch
         binding.switchOnSwipe.isChecked = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
+
+        // media
+        binding.mediaEnabled.isChecked = mSharedPreferences.getBoolean(SP_MEDIA_ENABLED, false)
 
         //Brightness management
         binding.automaticBrightness.isChecked = mSharedPreferences.getBoolean(SP_AUTOMATIC_BRIGHTNESS, true)
@@ -269,6 +273,9 @@ class SettingsFragment : Fragment() {
 
             //Switch
             putBoolean(SP_SWITCH_ON_SWIPE, binding.switchOnSwipe.isChecked)
+
+            // media
+            putBoolean(SP_MEDIA_ENABLED, binding.mediaEnabled.isChecked)
 
             //Brightness management
             putBoolean(SP_AUTOMATIC_BRIGHTNESS, binding.automaticBrightness.isChecked)
