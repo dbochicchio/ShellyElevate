@@ -3,6 +3,7 @@ package me.rapierxbox.shellyelevatev2.helper;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
+import android.os.SystemClock;
 
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntConsumer;
@@ -19,6 +20,9 @@ public class BrightnessAnimator {
 	private ValueAnimator animator;
 	private int currentBrightness = -1; // initial unknown value
 	private boolean running = false;
+	private long lastFrameAtMs = 0L;
+	private static final long FRAME_THROTTLE_MS = 50L; // cap writes to ~20fps to reduce sysfs churn
+	private static final int MIN_ANIMATION_STEP = 2; // skip animating tiny deltas
 
 	/**
 	 * Animate brightness from current value to target.
@@ -38,6 +42,12 @@ public class BrightnessAnimator {
 	public void animate(int from, int to, IntConsumer onUpdate) {
 		if (from == to) return; // no need to animate
 
+		if (Math.abs(to - from) < MIN_ANIMATION_STEP) {
+			currentBrightness = to;
+			onUpdate.accept(to);
+			return;
+		}
+
 		// Cancel previous animation
 		cancel();
 
@@ -45,10 +55,13 @@ public class BrightnessAnimator {
 		animator.setDuration(Math.max(0, ScreenManager.FADE_DURATION_MS));
 		animator.addUpdateListener(animation -> {
 			int value = (Integer) animation.getAnimatedValue();
+			long now = SystemClock.uptimeMillis();
+			if (now - lastFrameAtMs < FRAME_THROTTLE_MS) return;
 			lock.lock();
 			try {
 				if (value != currentBrightness) {
 					currentBrightness = value;
+					lastFrameAtMs = now;
 					onUpdate.accept(value);
 				}
 			} finally {

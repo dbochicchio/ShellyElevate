@@ -4,6 +4,7 @@ import static me.rapierxbox.shellyelevatev2.Constants.INTENT_SETTINGS_CHANGED;
 import static me.rapierxbox.shellyelevatev2.Constants.INTENT_WEBVIEW_INJECT_JAVASCRIPT;
 import static me.rapierxbox.shellyelevatev2.Constants.MQTT_TOPIC_HELLO;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_HTTP_SERVER_ENABLED;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_MEDIA_ENABLED;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mApplicationContext;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceSensorManager;
@@ -125,6 +126,7 @@ public class HttpServer extends NanoHTTPD {
         Method method = session.getMethod();
         String uri = session.getUri();
         JSONObject jsonResponse = new JSONObject();
+        jsonResponse.put("success", false);
 
         switch (uri.replace("/webview/", "")) {
             case "refresh":
@@ -133,6 +135,7 @@ public class HttpServer extends NanoHTTPD {
                     LocalBroadcastManager.getInstance(ShellyElevateApplication.mApplicationContext).sendBroadcast(intent);
                     jsonResponse.put("success", true);
                 }
+                break;
             case "inject":
                 if (method.equals(Method.POST)) {
                     Map<String, String> files = new HashMap<>();
@@ -149,12 +152,23 @@ public class HttpServer extends NanoHTTPD {
 
                     jsonResponse.put("success", true);
                 }
+                break;
+            default:
+                jsonResponse.put("error", "Invalid request URI");
+                break;
         }
 
-        return newFixedLengthResponse(jsonResponse.getBoolean("success") ? Response.Status.OK : Response.Status.INTERNAL_ERROR, "application/json", jsonResponse.toString());
+        return newFixedLengthResponse(jsonResponse.optBoolean("success") ? Response.Status.OK : Response.Status.INTERNAL_ERROR, "application/json", jsonResponse.toString());
     }
 
     private Response handleMediaRequest(IHTTPSession session) throws JSONException, ResponseException, IOException {
+        if (!mSharedPreferences.getBoolean(SP_MEDIA_ENABLED, false) || ShellyElevateApplication.mMediaHelper == null) {
+            JSONObject jsonResponse = new JSONObject();
+            jsonResponse.put("success", false);
+            jsonResponse.put("error", "Media disabled");
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", jsonResponse.toString());
+        }
+
         Method method = session.getMethod();
         String uri = session.getUri();
         JSONObject jsonResponse = new JSONObject();

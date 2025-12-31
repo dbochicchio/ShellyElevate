@@ -17,6 +17,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.SystemClock;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -34,6 +35,14 @@ public class DeviceSensorManager implements SensorEventListener {
     private static final String TAG = "DeviceSensorManager";
     private float lastMeasuredLux = 0.0f;
     private float lastPublishedLux = -1f; // initialize to invalid value
+    private long lastLuxBroadcastAtMs = 0L;
+    private static final long MIN_LUX_EVENT_INTERVAL_MS = 1000L; // reduced spam
+    private static final float LUX_RELATIVE_THRESHOLD = 0.15f; // increased threshold to reduce broadcasts
+
+    private float lastPublishedProximity = -1f;
+    private long lastProximityBroadcastAtMs = 0L;
+    private static final long MIN_PROX_EVENT_INTERVAL_MS = 500L; // doubled interval
+    private static final float PROX_ABS_THRESHOLD = 0.2f; // increased threshold
 
     private final Context context;
 
@@ -91,30 +100,42 @@ public class DeviceSensorManager implements SensorEventListener {
                     shouldPublish = true;
                 } else {
                     float diff = Math.abs(lastMeasuredLux - lastPublishedLux);
-                    float change = diff / lastPublishedLux;
-                    if (change >= 0.04f) { // 4% threshold - TODO: make it configurable
+                    float change = diff / Math.max(1f, lastPublishedLux);
+                    if (change >= LUX_RELATIVE_THRESHOLD) {
                         shouldPublish = true;
                     }
                 }
 
-                if (shouldPublish && mMQTTServer.shouldSend()) {
+                long now = SystemClock.elapsedRealtime();
+                boolean intervalOk = now - lastLuxBroadcastAtMs >= MIN_LUX_EVENT_INTERVAL_MS;
+
+                if (shouldPublish && mMQTTServer != null && mMQTTServer.shouldSend()) {
                     mMQTTServer.publishLux(lastMeasuredLux);
                     lastPublishedLux = lastMeasuredLux;
                 }
 
-                // Always broadcast locally for UI updates, even if not published
-                intent = new Intent(INTENT_LIGHT_UPDATED);
-                intent.putExtra(INTENT_LIGHT_KEY, lastMeasuredLux);
-                LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                if (intervalOk) {
+                    intent = new Intent(INTENT_LIGHT_UPDATED);
+                    intent.putExtra(INTENT_LIGHT_KEY, lastMeasuredLux);
+                    LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                    lastLuxBroadcastAtMs = now;
+                }
                 break;
 
             case Sensor.TYPE_PROXIMITY:
                 lastMeasuredDistance = event.values[0];
+                boolean first = lastPublishedProximity < 0f;
+                float delta = Math.abs(lastMeasuredDistance - (first ? lastMeasuredDistance : lastPublishedProximity));
+                long nowProx = SystemClock.elapsedRealtime();
+                boolean intervalOkProx = nowProx - lastProximityBroadcastAtMs >= MIN_PROX_EVENT_INTERVAL_MS;
 
-                //Let everyone know we got a new proximity value
-                intent = new Intent(INTENT_PROXIMITY_UPDATED);
-                intent.putExtra(INTENT_PROXIMITY_KEY, lastMeasuredDistance);
-                LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                if (first || (delta >= PROX_ABS_THRESHOLD && intervalOkProx)) {
+                    intent = new Intent(INTENT_PROXIMITY_UPDATED);
+                    intent.putExtra(INTENT_PROXIMITY_KEY, lastMeasuredDistance);
+                    LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
+                    lastProximityBroadcastAtMs = nowProx;
+                    lastPublishedProximity = lastMeasuredDistance;
+                }
                 break;
         }
     }

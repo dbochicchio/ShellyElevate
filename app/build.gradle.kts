@@ -12,8 +12,8 @@ android {
         minSdk = 24
         //noinspection ExpiredTargetSdkVersion
         targetSdk = 24
-        versionCode = 2_03_00
-        versionName = "2.3.0"
+        versionCode = 3_00_00
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,6 +24,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Use the default debug signing key for release to simplify installs
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -56,6 +58,7 @@ dependencies {
     implementation(libs.preference)
     implementation(libs.nanohttpd)
     implementation(libs.org.eclipse.paho.mqttv5.client)
+    implementation(libs.webkit)
 
     implementation(platform(libs.okhttpbom))
     implementation(libs.okhttp)

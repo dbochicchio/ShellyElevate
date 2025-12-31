@@ -10,6 +10,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.util.Log;
+import android.os.SystemClock;
 
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
@@ -32,6 +33,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import me.rapierxbox.shellyelevatev2.DeviceModel;
+import me.rapierxbox.shellyelevatev2.BuildConfig;
 
 public class MQTTServer {
 
@@ -40,9 +42,21 @@ public class MQTTServer {
     private final ShellyElevateMQTTCallback mShellyElevateMQTTCallback;
     private final MqttConnectionOptions mMqttConnectionsOptions;
     private final ScheduledExecutorService scheduler;
+    private volatile boolean periodicScheduled = false;
     private String clientId;
     private boolean validForConnection;
     private volatile boolean connecting = false;
+    private volatile int lastPublishedBrightness = Integer.MIN_VALUE;
+    private volatile long lastBrightnessSentAtMs = 0L;
+    private static final long MIN_BRIGHTNESS_PUBLISH_INTERVAL_MS = 500;
+
+    // Lightweight coalescing for bursty publishes (switches/buttons/relays)
+    private static final long COALESCE_WINDOW_MS = 40L;
+    private final Object coalesceLock = new Object();
+    private final java.util.HashMap<String, String> pendingPayloads = new java.util.HashMap<>();
+    private final java.util.HashMap<String, Integer> pendingQos = new java.util.HashMap<>();
+    private final java.util.HashMap<String, Boolean> pendingRetained = new java.util.HashMap<>();
+    private volatile boolean flushScheduled = false;
 
     public MQTTServer() {
         mMemoryPersistence = new MemoryPersistence();
@@ -52,7 +66,6 @@ public class MQTTServer {
 
         setupClientId();
         registerSettingsReceiver();
-        schedulePeriodicTempHum();
 
         checkCredsAndConnect();
     }
@@ -77,7 +90,9 @@ public class MQTTServer {
     }
 
     private void schedulePeriodicTempHum() {
-        scheduler.scheduleWithFixedDelay(this::publishTempAndHum, 0, 5, TimeUnit.SECONDS);
+        if (periodicScheduled) return;
+        scheduler.scheduleWithFixedDelay(this::publishTempAndHum, 0, 30, TimeUnit.SECONDS);
+        periodicScheduled = true;
     }
 
     public void checkCredsAndConnect() {
@@ -87,6 +102,8 @@ public class MQTTServer {
                 !mSharedPreferences.getString(SP_MQTT_PASSWORD, "").isEmpty() &&
                         !mSharedPreferences.getString(SP_MQTT_USERNAME, "").isEmpty() &&
                         !mSharedPreferences.getString(SP_MQTT_BROKER, "").isEmpty();
+
+        schedulePeriodicTempHum();
 
         connect();
     }
@@ -191,20 +208,25 @@ public class MQTTServer {
                 // Publish online status last
                 publishInternal(parseTopic(MQTT_TOPIC_STATUS), "online", 1, true);
 
-                // Stagger sensor publishes
+                // Stagger sensor publishes; consolidate Runnable allocations
                 scheduler.schedule(this::publishTempAndHum, 50, TimeUnit.MILLISECONDS);
-                for (int num = 0; num < DeviceModel.getReportedDevice().inputs; num++) {
-                    int finalNum = num;
-                    scheduler.schedule(() -> publishRelay(finalNum, mDeviceHelper.getRelay(finalNum)), 100, TimeUnit.MILLISECONDS);
-                }
-                scheduler.schedule(() -> publishLux(mDeviceSensorManager.getLastMeasuredLux()), 150, TimeUnit.MILLISECONDS);
-                scheduler.schedule(() -> publishScreenBrightness(mDeviceHelper.getScreenBrightness()), 200, TimeUnit.MILLISECONDS);
-
-                if (DeviceModel.getReportedDevice().hasProximitySensor) {
-                    scheduler.schedule(() -> publishProximity(mDeviceSensorManager.getLastMeasuredDistance()), 250, TimeUnit.MILLISECONDS);
-                }
-
-                scheduler.schedule(() -> publishSleeping(mScreenSaverManager.isScreenSaverRunning()), 300, TimeUnit.MILLISECONDS);
+                
+                // Batch relay publishes to reduce lambda allocations
+                scheduler.schedule(() -> {
+                    for (int num = 0; num < DeviceModel.getReportedDevice().inputs; num++) {
+                        publishRelay(num, mDeviceHelper.getRelay(num));
+                    }
+                }, 100, TimeUnit.MILLISECONDS);
+                
+                // Batch remaining sensor publishes
+                scheduler.schedule(() -> {
+                    publishLux(mDeviceSensorManager.getLastMeasuredLux());
+                    publishScreenBrightness(mDeviceHelper.getScreenBrightness());
+                    if (DeviceModel.getReportedDevice().hasProximitySensor) {
+                        publishProximity(mDeviceSensorManager.getLastMeasuredDistance());
+                    }
+                    publishSleeping(mScreenSaverManager.isScreenSaverRunning());
+                }, 150, TimeUnit.MILLISECONDS);
 
             } catch (Exception e) {
                 Log.e("MQTT", "publishStatus failed", e);
@@ -234,6 +256,51 @@ public class MQTTServer {
     }
 
     public void publishInternal(String topic, String payload, int qos, boolean retained) {
+        if (scheduler.isShutdown()) return;
+        scheduler.execute(() -> publishInternalSync(topic, payload, qos, retained));
+    }
+
+    private void publishInternalCoalesced(String topic, String payload, int qos, boolean retained) {
+        if (scheduler.isShutdown()) return;
+        synchronized (coalesceLock) {
+            pendingPayloads.put(topic, payload);
+            pendingQos.put(topic, qos);
+            pendingRetained.put(topic, retained);
+            if (!flushScheduled) {
+                flushScheduled = true;
+                scheduler.schedule(this::flushPendingPublishes, COALESCE_WINDOW_MS, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    private void flushPendingPublishes() {
+        java.util.Map<String, String> toSend;
+        java.util.Map<String, Integer> qosMap;
+        java.util.Map<String, Boolean> retainedMap;
+        synchronized (coalesceLock) {
+            toSend = new java.util.HashMap<>(pendingPayloads);
+            qosMap = new java.util.HashMap<>(pendingQos);
+            retainedMap = new java.util.HashMap<>(pendingRetained);
+            pendingPayloads.clear();
+            pendingQos.clear();
+            pendingRetained.clear();
+            flushScheduled = false;
+        }
+
+        if (toSend.isEmpty()) return;
+        if (!shouldSend()) return;
+
+        // Publish all pending in the scheduler thread to avoid excess context switches
+        for (java.util.Map.Entry<String, String> e : toSend.entrySet()) {
+            String topic = e.getKey();
+            String payload = e.getValue();
+            int qos = qosMap.getOrDefault(topic, 1);
+            boolean retained = retainedMap.getOrDefault(topic, false);
+            publishInternalSync(topic, payload, qos, retained);
+        }
+    }
+
+    private void publishInternalSync(String topic, String payload, int qos, boolean retained) {
         if (!shouldSend()) {
             Log.w("MQTT", "publishInternal skipped — client not connected: " + topic);
             return;
@@ -251,8 +318,13 @@ public class MQTTServer {
     public void publishTempAndHum() {
         float temp = (float) mDeviceHelper.getTemperature();
         float hum = (float) mDeviceHelper.getHumidity();
-        publishTemp(temp);
-        publishHum(hum);
+        // Batch both publishes in one executor call to reduce thread handoffs
+        if (temp != -999 || hum != -999) {
+            scheduler.execute(() -> {
+                if (temp != -999) publishInternal(parseTopic(MQTT_TOPIC_TEMP_SENSOR), String.valueOf(temp), 1, false);
+                if (hum != -999) publishInternal(parseTopic(MQTT_TOPIC_HUM_SENSOR), String.valueOf(hum), 1, false);
+            });
+        }
     }
 
     public void publishTemp(float temp) {
@@ -269,8 +341,18 @@ public class MQTTServer {
         publishInternal(parseTopic(MQTT_TOPIC_LUX_SENSOR), String.valueOf(lux), 1, false);
     }
 
-    public void publishScreenBrightness(float val) {
-        publishInternal(parseTopic(MQTT_TOPIC_SCREEN_BRIGHTNESS), String.valueOf(val), 1, false);
+    public void publishScreenBrightness(int brightness) {
+        long now = SystemClock.elapsedRealtime();
+
+        synchronized (this) {
+            if (brightness == lastPublishedBrightness && (now - lastBrightnessSentAtMs) < MIN_BRIGHTNESS_PUBLISH_INTERVAL_MS) {
+                return;
+            }
+            lastPublishedBrightness = brightness;
+            lastBrightnessSentAtMs = now;
+        }
+
+        publishInternal(parseTopic(MQTT_TOPIC_SCREEN_BRIGHTNESS), String.valueOf(brightness), 1, false);
     }
     public void publishProximity(float distance) {
         publishInternal(parseTopic(MQTT_TOPIC_PROXIMITY_SENSOR), String.valueOf(distance), 1, false);
@@ -278,12 +360,12 @@ public class MQTTServer {
 
     public void publishRelay(int num, boolean state) {
         var mqttSuffix = (num >0 ? ("_" + num): "");
-        publishInternal(parseTopic(MQTT_TOPIC_RELAY_STATE) + mqttSuffix, state ? "ON" : "OFF", 1, false);
+        publishInternalCoalesced(parseTopic(MQTT_TOPIC_RELAY_STATE) + mqttSuffix, state ? "ON" : "OFF", 1, false);
     }
 
     public void publishSwitch(int num, boolean state) {
         var mqttSuffix = (num >0 ? ("_" + num): "");
-        publishInternal(parseTopic(MQTT_TOPIC_BUTTON_STATE) + mqttSuffix, state?"PRESS":"RELEASE", 1, false);
+        publishInternalCoalesced(parseTopic(MQTT_TOPIC_BUTTON_STATE) + mqttSuffix, state?"PRESS":"RELEASE", 1, false);
     }
 
     public void publishSleeping(boolean state) {
@@ -293,7 +375,7 @@ public class MQTTServer {
     public void publishButton(int number) {
         long epochMillis = System.currentTimeMillis();
         String payload = "{\"last_update\": " + epochMillis + "}";
-        publishInternal(parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + number, payload, 1, false);
+        publishInternalCoalesced(parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + number, payload, 1, false);
     }
 
     public void publishSwipeEvent() {
@@ -314,6 +396,9 @@ public class MQTTServer {
             } catch (PackageManager.NameNotFoundException ignored) {}
 
             json.put("version", version);
+            json.put("startTime", getApplicationStartTime());
+            json.put("buildType", BuildConfig.BUILD_TYPE);
+            json.put("debug", BuildConfig.DEBUG);
             var device = DeviceModel.getReportedDevice();
             json.put("modelName", device.name());
             json.put("proximity", device.hasProximitySensor ? "true" : "false");

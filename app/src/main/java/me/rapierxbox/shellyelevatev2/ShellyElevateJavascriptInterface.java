@@ -123,9 +123,9 @@ public class ShellyElevateJavascriptInterface {
 
     private void triggerEvent(String eventName, Object... params) {
         if (eJSaEnabled()) {
-            Log.d("ShellyElevateV2", "ShellyElevateJavascriptInterface.notifyWebViewEvent: " + eventName);
             String jsFunction = bindings.get(eventName);
             if (jsFunction != null) {
+                Log.d("ShellyElevateV2", "ShellyElevateJavascriptInterface.notifyWebViewEvent: " + eventName);
                 String joinedParams = "";
                 if (params != null && params.length > 0) {
                     StringBuilder sb = new StringBuilder();
@@ -141,8 +141,6 @@ public class ShellyElevateJavascriptInterface {
                 }
                 Log.d("ShellyElevateV2", "Sending JS: " + jsFunction + "(" + joinedParams + ");");
                 sendJavascript(jsFunction + "(" + joinedParams + ");");
-            } else {
-                Log.d("ShellyElevateV2", "JS EventName binding not found: " + eventName);
             }
         }
     }
@@ -170,7 +168,10 @@ public class ShellyElevateJavascriptInterface {
     }
 
     public void onMotion() {
-        triggerEvent("onMotion");
+        // Only emit if someone has bound to it to avoid noisy logs
+        if (bindings.containsKey("onMotion")) {
+            triggerEvent("onMotion");
+        }
     }
 
     public void onButtonPressed(int i) {

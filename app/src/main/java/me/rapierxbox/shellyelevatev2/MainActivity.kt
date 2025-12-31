@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.net.http.SslError
 import android.os.Bundle
 import android.util.Log
@@ -28,6 +29,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresPermission
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +57,8 @@ class MainActivity : ComponentActivity() {
     private var isActive: Boolean = false
     private var initialLoadDone = false
     private var retryJob: kotlinx.coroutines.Job? = null
+    private var firstPaintDone = false
+    private val pendingJs = mutableListOf<String>()
 
     private lateinit var binding: MainActivityBinding // Declare the binding object
 
@@ -63,16 +68,12 @@ class MainActivity : ComponentActivity() {
     // === SETTINGS CHANGED RECEIVER ===
     private val settingsChangedBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            lifecycleScope.launch(Dispatchers.Default) {
-                try {
-                    val webviewUrl = ServiceHelper.getWebviewUrl() // heavy computation if any
-                    withContext(Dispatchers.Main) {
-                        Log.d("MainActivity", "Reloading WebView due to settings change: $webviewUrl")
-                        binding.myWebView.loadUrl(webviewUrl)
-                    }
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Error reloading WebView on settings change", e)
-                }
+            try {
+                val webviewUrl = ServiceHelper.getWebviewUrl()
+                Log.d("MainActivity", "Reloading WebView due to settings change: $webviewUrl")
+                binding.myWebView.loadUrl(webviewUrl)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error reloading WebView on settings change", e)
             }
         }
     }
@@ -80,17 +81,17 @@ class MainActivity : ComponentActivity() {
     // === WEBVIEW JS INJECTOR RECEIVER ===
     private val webviewJavascriptInjectorBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val javascriptCode = intent?.getStringExtra("javascript") ?: return
-            lifecycleScope.launch(Dispatchers.Default) {
-                try {
-                    val processedJs = javascriptCode.trim() // any heavy processing
-                    withContext(Dispatchers.Main) {
-                        Log.d("MainActivity", "Injecting JS into WebView: $processedJs")
-                        binding.myWebView.evaluateJavascript(processedJs, null)
-                    }
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Error injecting JS", e)
+            val javascriptCode = intent?.getStringExtra("javascript")?.trim() ?: return
+            try {
+                if (!firstPaintDone) {
+                    pendingJs.add(javascriptCode)
+                    Log.d("MainActivity", "Queueing JS until first paint")
+                    return
                 }
+                Log.d("MainActivity", "Injecting JS into WebView")
+                binding.myWebView.evaluateJavascript(javascriptCode, null)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error injecting JS", e)
             }
         }
     }
@@ -99,24 +100,17 @@ class MainActivity : ComponentActivity() {
     private val screenStateReceiver: BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
-
-            lifecycleScope.launch(Dispatchers.Default) {
-                try {
-                    when (action) {
-                        INTENT_TURN_SCREEN_ON -> mShellyElevateJavascriptInterface.onScreenOn()
-                        INTENT_TURN_SCREEN_OFF -> mShellyElevateJavascriptInterface.onScreenOff()
-                        INTENT_SCREEN_SAVER_STARTED -> mShellyElevateJavascriptInterface.onScreensaverOn()
-                        INTENT_SCREEN_SAVER_STOPPED -> mShellyElevateJavascriptInterface.onScreensaverOff()
-                        INTENT_PROXIMITY_UPDATED -> mShellyElevateJavascriptInterface.onMotion()
-                    }
-
-                    // UI logging only on main thread
-                    withContext(Dispatchers.Main) {
-                        Log.d("MainActivity", "screenStateReceiver invoked: $action")
-                    }
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Error handling screen state: $action", e)
+            try {
+                when (action) {
+                    INTENT_TURN_SCREEN_ON -> mShellyElevateJavascriptInterface.onScreenOn()
+                    INTENT_TURN_SCREEN_OFF -> mShellyElevateJavascriptInterface.onScreenOff()
+                    INTENT_SCREEN_SAVER_STARTED -> mShellyElevateJavascriptInterface.onScreensaverOn()
+                    INTENT_SCREEN_SAVER_STOPPED -> mShellyElevateJavascriptInterface.onScreensaverOff()
+                    INTENT_PROXIMITY_UPDATED -> mShellyElevateJavascriptInterface.onMotion()
                 }
+                if (BuildConfig.DEBUG) Log.d("MainActivity", "screenStateReceiver invoked: $action")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error handling screen state: $action", e)
             }
         }
     }
@@ -150,7 +144,6 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
         val webSettings: WebSettings = binding.myWebView.settings
-
         webSettings.javaScriptEnabled = true
         webSettings.domStorageEnabled = true
         webSettings.javaScriptCanOpenWindowsAutomatically = true
@@ -168,12 +161,29 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         webSettings.setRenderPriority(WebSettings.RenderPriority.NORMAL)
 
+        // Disable WebView-led darkening to avoid tone-mapped/desaturated colors
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            WebSettingsCompat.setForceDark(webSettings, WebSettingsCompat.FORCE_DARK_OFF)
+        }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webSettings, false)
+        }
+
         // Hint Chromium to preraster when appropriate (improves first paint)
         webSettings.offscreenPreRaster = true
 
         binding.myWebView.apply {
+            // Ensure hardware acceleration stays enabled for proper color/gamut handling
+            if (layerType != View.LAYER_TYPE_HARDWARE) {
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            }
 
             webViewClient = object : WebViewClient() {
+
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    firstPaintDone = false
+                }
 
                 // Helper to know if we already show the offline page
                 private fun isOfflineUrl(url: String?): Boolean {
@@ -297,6 +307,14 @@ class MainActivity : ComponentActivity() {
                     return true
                 }
 
+                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                    super.onPageCommitVisible(view, url)
+                    firstPaintDone = true
+                    if (pendingJs.isNotEmpty()) {
+                        pendingJs.forEach { binding.myWebView.evaluateJavascript(it, null) }
+                        pendingJs.clear()
+                    }
+                }
             }
 
             webChromeClient = WebChromeClient()
@@ -383,7 +401,6 @@ class MainActivity : ComponentActivity() {
         retryJob = null
     }
 
-
     override fun onResume() {
         super.onResume()
 
@@ -438,7 +455,7 @@ class MainActivity : ComponentActivity() {
         // Log everything for debugging
         //Log.d("MainActivity", "dispatchKeyEvent: $event")
 
-        val handled = onKeyUpInternal(event.keyCode, event)
+        val handled = onKeyEventInternal(event.keyCode, event)
 
         // Then always forward to WebView
         // if (!handled) binding.myWebView.post { binding.myWebView.dispatchKeyEvent(event) }
@@ -447,14 +464,13 @@ class MainActivity : ComponentActivity() {
         return handled || super.dispatchKeyEvent(event)
     }
 
-    private fun onKeyUpInternal(keyCode: Int, event: android.view.KeyEvent): Boolean {
-        Log.d("MainActivity", "Key pressed: $keyCode - Event: $event")
-
-        // handle internally
+    private fun onKeyEventInternal(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (BuildConfig.DEBUG) Log.d("MainActivity", "Key pressed: $keyCode - Event: $event")
         when (keyCode) {
-            140 -> { // Special power-like button (release)
-                event.let {
-                    val duration = it.eventTime - it.downTime
+            // Special power-like button (long-press release triggers reboot)
+            140 -> {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    val duration = event.eventTime - event.downTime
                     if (duration >= 3000) {
                         lifecycleScope.launch(Dispatchers.IO) {
                             try { Runtime.getRuntime().exec("reboot") } catch (e: IOException) {
@@ -464,88 +480,30 @@ class MainActivity : ComponentActivity() {
                         return true
                     }
                 }
-                return true
+                return false
             }
+            // Switch inputs (treated as edge-triggered on ACTION_UP)
+            141 -> { if (event.action == KeyEvent.ACTION_UP) switchInput(0, true); return true }
+            142 -> { if (event.action == KeyEvent.ACTION_UP) switchInput(1, true); return true }
 
-            141 -> { // Switch 1
-                switchInput(0, event.action == KeyEvent.ACTION_UP)
-                return true
-            }
+            // Shelly input buttons
+            131 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(0); return true }; return false }
+            132 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(1); return true }; return false }
+            133 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(2); return true }; return false }
+            134 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(3); return true }; return false }
 
-            142 -> { // Switch 2
-                switchInput(1, event.action == KeyEvent.ACTION_UP)
-                return true
-            }
+            // Proximity
+            135 -> { if (event.action == KeyEvent.ACTION_UP) { broadcastProximity(0f); return true }; return false }
+            136 -> { if (event.action == KeyEvent.ACTION_UP) { broadcastProximity(0.5f); return true }; return false }
 
-            131 -> { // Shelly input button 1 - UP
-                buttonPressed(0)
-                return true
-            }
+            // Media keys
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (event.action == KeyEvent.ACTION_UP) { mMediaHelper?.resumeOrPauseMusic(); return true }; return false }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { if (event.action == KeyEvent.ACTION_UP) { mMediaHelper?.resumeMusic(); return true }; return false }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { if (event.action == KeyEvent.ACTION_UP) { mMediaHelper?.pauseMusic(); return true }; return false }
+            KeyEvent.KEYCODE_MEDIA_NEXT -> { if (event.action == KeyEvent.ACTION_UP) { /* next track */ return true }; return false }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { if (event.action == KeyEvent.ACTION_UP) { /* prev track */ return true }; return false }
 
-            132 -> { // Shelly input button 1 - DOWN
-                buttonPressed(1)
-                return true
-            }
-
-            133 -> { // Shelly input button 2 - UP
-                buttonPressed(2)
-                return true
-            }
-
-            134 -> { // Shelly input button 2 - DOWN
-                buttonPressed(3)
-                return true
-            }
-
-            135 -> { // Proximity detected
-                //Let everyone know we are stopping the screensaver
-                broadcastProximity(0f)
-                return true
-            }
-
-            136 -> { // Proximity left
-                //still sending proximity to keep the screen on
-                broadcastProximity(0.5f)
-                return true
-            }
-
-            // MEDIA EVENTS
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                mMediaHelper.resumeOrPauseMusic()
-                return true
-            }
-
-            KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                mMediaHelper.resumeMusic()
-                return true
-            }
-
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                mMediaHelper.pauseMusic()
-                return true
-            }
-
-            KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                // TODO: next track?
-                return true
-            }
-
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                // TODO: previous track?
-                return true
-            }
-
-            KeyEvent.KEYCODE_VOLUME_UP -> {
-                mMediaHelper.volume += 10
-                return true
-            }
-
-            KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                mMediaHelper.volume -= 10
-                return true
-            }
-
-            else -> return super.onKeyUp(keyCode, event)
+            else -> return false
         }
     }
 

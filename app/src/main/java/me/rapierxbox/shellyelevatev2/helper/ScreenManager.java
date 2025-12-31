@@ -29,11 +29,14 @@ import android.util.Log;
 import androidx.annotation.MainThread;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import me.rapierxbox.shellyelevatev2.BuildConfig;
+
 public class ScreenManager extends BroadcastReceiver {
 
     private static final String TAG = "ScreenManager";
     private static final long HYSTERESIS_DELAY_MS = 3000L; // 3 seconds
     public static final long FADE_DURATION_MS = 1000L;
+    private static final int MIN_BRIGHTNESS_STEP = 3;
 
     public static final int MIN_BRIGHTNESS_DEFAULT = 48;
     public static final int DEFAULT_BRIGHTNESS = 255;
@@ -90,6 +93,10 @@ public class ScreenManager extends BroadcastReceiver {
         intentFilter.addAction(INTENT_LIGHT_UPDATED);
 
         LocalBroadcastManager.getInstance(context).registerReceiver(this, intentFilter);
+
+        // Force screen on at boot so we never start at brightness 0; screensaver will handle dimming later
+        setScreenOn(true);
+        updateBrightness();
     }
 
     private void loadPrefsToCache() {
@@ -117,7 +124,7 @@ public class ScreenManager extends BroadcastReceiver {
         mDeviceHelper.setScreenOn(on);
         // ensure device brightness is in sync
         if (!on) {
-            mDeviceHelper.setScreenBrightness(0);
+            applyBrightness(0, "screen off");
         }
     }
 
@@ -147,6 +154,9 @@ public class ScreenManager extends BroadcastReceiver {
                 break;
             case INTENT_TURN_SCREEN_OFF:
                 setScreenOn(false);
+                // When screen is turned off, reset brightness targets to 0 to avoid stale values
+                targetBrightness = 0;
+                currentBrightness = 0;
                 break;
             case INTENT_LIGHT_UPDATED:
                 float lux = intent.getFloatExtra(INTENT_LIGHT_KEY, 0.0f);
@@ -163,15 +173,34 @@ public class ScreenManager extends BroadcastReceiver {
     }
 
     private synchronized void updateBrightness() {
-        // If screen is off or screensaver is active, force brightness to 0
+        int desiredBrightness = computeDesiredBrightness();
+
+        // If screen is off or screensaver is active, force brightness to 0 immediately
         if (!screenOn || inScreenSaver) {
             targetBrightness = 0;
-            // respect request: keep using mDeviceHelper directly
-            mDeviceHelper.setScreenBrightness(0);
-            Log.d(TAG, "Screen off or screensaver: setting brightness to 0");
-            // cancel pending fades
+            applyBrightness(0, "screen off or screensaver");
             fadeHandler.removeCallbacks(fadeRunnable);
+            brightnessAnimator.cancel();
             return;
+        }
+
+        if (desiredBrightness != targetBrightness) {
+            if (targetBrightness >= 0 && Math.abs(desiredBrightness - targetBrightness) < MIN_BRIGHTNESS_STEP) {
+                return; // ignore tiny adjustments to reduce churn
+            }
+            targetBrightness = desiredBrightness;
+            lastUpdateTime = System.currentTimeMillis();
+            // cancel any pending fade to avoid race with outdated tasks
+            fadeHandler.removeCallbacks(fadeRunnable);
+            // post hysteresis delayed task on main looper
+            fadeHandler.postDelayed(fadeRunnable, HYSTERESIS_DELAY_MS);
+            if (BuildConfig.DEBUG) Log.d(TAG, "Desired brightness: " + desiredBrightness + ", targetBrightness: " + targetBrightness + ", lastUpdateTime: " + lastUpdateTime + ", currentBrightness: " + currentBrightness);
+        }
+    }
+
+    private int computeDesiredBrightness() {
+        if (!screenOn || inScreenSaver) {
+            return 0;
         }
 
         int desiredBrightness;
@@ -181,17 +210,7 @@ public class ScreenManager extends BroadcastReceiver {
             desiredBrightness = fixedBrightness();
         }
 
-        desiredBrightness = clamp(desiredBrightness, 0, 255);
-
-        if (desiredBrightness != targetBrightness) {
-            targetBrightness = desiredBrightness;
-            lastUpdateTime = System.currentTimeMillis();
-            // cancel any pending fade to avoid race with outdated tasks
-            fadeHandler.removeCallbacks(fadeRunnable);
-            // post hysteresis delayed task on main looper
-            fadeHandler.postDelayed(fadeRunnable, HYSTERESIS_DELAY_MS);
-            Log.d(TAG, "Desired brightness: " + desiredBrightness + ", targetBrightness: " + targetBrightness + ", lastUpdateTime: " + lastUpdateTime + ", currentBrightness: " + currentBrightness);
-        }
+        return clamp(desiredBrightness, 0, 255);
     }
 
     private synchronized void checkAndApplyBrightness() {
@@ -201,12 +220,11 @@ public class ScreenManager extends BroadcastReceiver {
 
         if (now - lastUpdateTime >= HYSTERESIS_DELAY_MS || force) {
             if (currentBrightness == -1) {
-                currentBrightness = targetBrightness;
-                mDeviceHelper.setScreenBrightness(clamp(currentBrightness, 0, 255));
+                applyBrightness(targetBrightness, "initial apply");
             } else if (currentBrightness != targetBrightness) {
                 animateBrightnessTransition(currentBrightness, targetBrightness);
             } else {
-                Log.d(TAG, "No brightness change needed.");
+                if (BuildConfig.DEBUG) Log.d(TAG, "No brightness change needed.");
             }
         } else {
             // A possible in-flight update; re-schedule to ensure we eventually apply.
@@ -224,14 +242,12 @@ public class ScreenManager extends BroadcastReceiver {
         // Use the existing animator class if available; fallback to ValueAnimator if needed.
         try {
             brightnessAnimator.animate(from, to, value -> {
-                mDeviceHelper.setScreenBrightness(clamp(value, 0, 255));
-                currentBrightness = value;
+                applyBrightness(value, "animate");
             });
         } catch (Throwable t) {
             // fallback safe path: immediate set (shouldn't happen often)
-            Log.d(TAG, "BrightnessAnimator failed, applying immediate value. " + t.getMessage());
-            currentBrightness = to;
-            mDeviceHelper.setScreenBrightness(to);
+            if (BuildConfig.DEBUG) Log.d(TAG, "BrightnessAnimator failed, applying immediate value. " + t.getMessage());
+            applyBrightness(to, "animate fallback");
         }
     }
 
@@ -252,12 +268,45 @@ public class ScreenManager extends BroadcastReceiver {
 
     private synchronized void updateScreenSaverState(boolean newState) {
         this.inScreenSaver = newState;
-        updateBrightness();
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "updateScreenSaverState newState=" + newState + ", screenOn=" + screenOn + ", currentBrightness=" + currentBrightness + ", targetBrightness=" + targetBrightness + ", lux=" + lastMeasuredLux);
+        }
+        if (newState) {
+            updateBrightness();
+            // Force a second write shortly after entering screensaver to avoid hardware ignoring the first set
+            fadeHandler.postDelayed(() -> {
+                if (inScreenSaver) {
+                    applyBrightness(0, "screensaver second write");
+                }
+            }, 300L);
+        } else {
+            // On wake from screensaver, raise brightness immediately (no 3s hysteresis)
+            // Ensure screen is marked on before computing brightness so we don't stick at 0
+            setScreenOn(true);
+
+            int desiredBrightness = computeDesiredBrightness();
+            targetBrightness = desiredBrightness;
+            currentBrightness = desiredBrightness;
+            fadeHandler.removeCallbacks(fadeRunnable);
+            brightnessAnimator.cancel();
+            applyBrightness(desiredBrightness, "exit screensaver immediate");
+            lastUpdateTime = System.currentTimeMillis();
+            if (BuildConfig.DEBUG) Log.d(TAG, "Exited screensaver, applied brightness immediately: " + desiredBrightness);
+        }
     }
 
     private static int clamp(int v, int min, int max) {
         if (v < min) return min;
         if (v > max) return max;
         return v;
+    }
+
+    private void applyBrightness(int rawValue, String reason) {
+        int clamped = clamp(rawValue, 0, 255);
+        mDeviceHelper.setScreenBrightness(clamped);
+        currentBrightness = clamped;
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Brightness set to " + clamped + " (" + reason + "), target=" + targetBrightness + ", inScreenSaver=" + inScreenSaver + ", screenOn=" + screenOn);
+        }
     }
 }

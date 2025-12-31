@@ -33,7 +33,6 @@ public class BootReceiver extends BroadcastReceiver {
 
             if (liteMode) {
                 Log.i("BootReceiver", "Lite mode enabled, skipping MainActivity");
-                // Optionally start a lightweight service here if you have one
             } else {
                 Log.i("BootReceiver", "Starting MainActivity");
                 Intent activityIntent = new Intent(context, MainActivity.class);

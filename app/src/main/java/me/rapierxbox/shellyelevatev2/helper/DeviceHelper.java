@@ -13,6 +13,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Objects;
 
+import me.rapierxbox.shellyelevatev2.BuildConfig;
 import me.rapierxbox.shellyelevatev2.DeviceModel;
 
 public class DeviceHelper {
@@ -47,7 +48,7 @@ public class DeviceHelper {
             }
         }
         if (screenBrightnessFile == null) {
-            Log.wtf(TAG, "no brightness file found");
+            Log.wtf(TAG, "No brightness file found");
             screenBrightnessFile = "";
         }
     }
@@ -55,7 +56,8 @@ public class DeviceHelper {
     public void setScreenOn(boolean on) {
         screenOn = on;
 
-        setScreenBrightnessInternal(screenOn ? lastScreenBrightness: 0);
+        // Don't write brightness here; let ScreenManager control it via updateBrightness()
+        // Avoid redundant writes and let the brightness manager decide the target
     }
 
     public boolean getScreenOn() {
@@ -63,6 +65,9 @@ public class DeviceHelper {
     }
 
     public void setScreenBrightness(int brightness) {
+        // Skip redundant writes to avoid duplicate logs and I/O
+        if (lastScreenBrightness == brightness) return;
+        
         lastScreenBrightness = brightness;
         setScreenBrightnessInternal(brightness);
     }
@@ -75,8 +80,7 @@ public class DeviceHelper {
 
     private void writeScreenBrightness(int brightness) {
         brightness = Math.max(0, Math.min(brightness, 255));
-
-        Log.d(TAG, "Set brightness to: " + brightness);
+        if (BuildConfig.DEBUG) Log.d(TAG, "Set brightness to: " + brightness);
         if (!Settings.System.canWrite(mApplicationContext)) {
             Log.i(TAG, "Please disable androids automatic brightness or give the app the change settings permission.");
         } else {
@@ -102,7 +106,6 @@ public class DeviceHelper {
 
         return relayState;
     }
-
 
     public void setRelay(int num, boolean state) {
         // Safety check

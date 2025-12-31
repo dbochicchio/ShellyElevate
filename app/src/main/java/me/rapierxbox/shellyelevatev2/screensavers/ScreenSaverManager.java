@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import me.rapierxbox.shellyelevatev2.BuildConfig;
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication;
 
 /**
@@ -33,6 +34,7 @@ public class ScreenSaverManager extends BroadcastReceiver {
     private long lastTouchEventTime;
     private boolean screenSaverRunning;
 	private volatile boolean keepAliveFlag = false;
+    private long lastProximityEventTime = 0L;
 
     public static ScreenSaver[] getAvailableScreenSavers() {
         return new ScreenSaver[]{
@@ -142,8 +144,9 @@ public class ScreenSaverManager extends BroadcastReceiver {
         var mqtt = ShellyElevateApplication.mMQTTServer;
         if (mqtt != null && mqtt.shouldSend()) mqtt.publishSleeping(true);
 
-        LocalBroadcastManager.getInstance(appContext)
-                .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STARTED));
+        // Defer non-critical broadcast to reduce main-thread pressure
+        scheduler.execute(() -> LocalBroadcastManager.getInstance(appContext)
+                .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STARTED)));
     }
 
     public void stopScreenSaver() {
@@ -153,23 +156,32 @@ public class ScreenSaverManager extends BroadcastReceiver {
         ScreenSaver saver = getCurrentScreenSaver();
         saver.onEnd(appContext);
 
-        appContext.sendBroadcast(new Intent(INTENT_END_SCREENSAVER));
+        // Defer non-critical broadcasts to reduce main-thread pressure
+        scheduler.execute(() -> {
+            appContext.sendBroadcast(new Intent(INTENT_END_SCREENSAVER));
+            LocalBroadcastManager.getInstance(appContext)
+                    .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STOPPED));
+        });
+
         lastTouchEventTime = System.currentTimeMillis();
 
         Log.i(TAG, "Stopping screensaver: " + saver.getClass().getSimpleName());
 
         var mqtt = ShellyElevateApplication.mMQTTServer;
         if (mqtt != null && mqtt.shouldSend()) mqtt.publishSleeping(false);
-
-        LocalBroadcastManager.getInstance(appContext)
-                .sendBroadcast(new Intent(INTENT_SCREEN_SAVER_STOPPED));
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
         float maxProximitySensorValue = mDeviceSensorManager.getMaxProximitySensorValue();
         float proximity = intent.getFloatExtra(INTENT_PROXIMITY_KEY, maxProximitySensorValue);
-        Log.i(TAG, "Proximity event: " + proximity + " - Value: " + proximity);
+        if (BuildConfig.DEBUG) Log.i(TAG, "Proximity event: " + proximity + " - Value: " + proximity);
+
+        long now = System.currentTimeMillis();
+        if (now - lastProximityEventTime < 350L) {
+            return; // debounce rapid proximity updates
+        }
+        lastProximityEventTime = now;
 
         var mqtt = ShellyElevateApplication.mMQTTServer;
         if (mqtt != null && mqtt.shouldSend()) mqtt.publishProximity(proximity);
@@ -179,8 +191,13 @@ public class ScreenSaverManager extends BroadcastReceiver {
 
         boolean wakeOnProximity = prefs.getBoolean(SP_WAKE_ON_PROXIMITY, false);
         float threshold = 0.5f; // 0.5 cm buffer
-        if (wakeOnProximity && screenSaverRunning && proximity < maxProximitySensorValue - threshold) {
+        boolean isNear = proximity < maxProximitySensorValue - threshold;
+        if (screenSaverRunning && isNear) {
+            // Wake even if the pref is off to avoid being stuck at brightness 0
             stopScreenSaver();
+        } else if (wakeOnProximity && isNear) {
+            // Not in saver yet, but a near event should refresh the idle timer
+            lastTouchEventTime = now;
         }
     }
 }
