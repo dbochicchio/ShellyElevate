@@ -81,6 +81,10 @@ public class DeviceHelper {
     private void writeScreenBrightness(int brightness) {
         brightness = Math.max(0, Math.min(brightness, 255));
         if (BuildConfig.DEBUG) Log.d(TAG, "Set brightness to: " + brightness);
+        
+        // Check for WRITE_SETTINGS permission (requested in MainActivity.onCreate)
+        // Note: SELinux denials for sysfs access (avc: denied { write } for name="brightness") 
+        // are expected and work in permissive mode on rooted Shelly devices
         if (!Settings.System.canWrite(mApplicationContext)) {
             Log.i(TAG, "Please disable androids automatic brightness or give the app the change settings permission.");
         } else {

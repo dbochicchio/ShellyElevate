@@ -38,7 +38,7 @@ ShellyElevate supports the entire Shelly Wall Display family with automatic hard
 ### V2 Generation
 - **Shelly Wall Display XL** (SAWD-3A1XE10EU2) - Large display with proximity sensor and 4 hardware buttons
 - **Shelly Wall Display U1** (SAWD-4A1XE10US0) - US model with proximity sensor *(coming soon)*
-- **Shelly Wall Display X2i** (SAWD-5A1XX10EU0) - With proximity sensor *(coming soon)*
+- **Shelly Wall Display X2i** (SAWD-5A1XX10EU0) - With proximity sensor
 - **Shelly Wall Display XLi** (SAWD-6A1XX10EU0) - Large display with proximity sensor and 4 hardware buttons *(coming soon)*
 
 Each device model has its own calibrated temperature/humidity offsets, relay configuration, button mapping, and sensor availability that are handled automatically by the app.
@@ -63,36 +63,6 @@ All sensors publish state changes automatically when MQTT is enabled and are acc
 ## HTTP API
 
 ShellyElevate includes a built-in HTTP server (port 8080) that can be enabled in settings. The API provides complete control over the device:
-
-### Endpoints
-
-#### `/settings` - Configuration Management
-- `GET /settings` - Retrieve all current settings
-- `POST /settings` - Update settings (JSON payload with key-value pairs)
-
-#### `/device` - Device Control
-- `GET /device/status` - Get relay states, sensor readings, and device info
-- `POST /device/relay/<id>/on` - Turn relay on
-- `POST /device/relay/<id>/off` - Turn relay off
-- `POST /device/relay/<id>/toggle` - Toggle relay state
-- `GET /device/temp` - Get temperature reading
-- `GET /device/humidity` - Get humidity reading
-- `GET /device/lux` - Get light sensor value
-- `GET /device/proximity` - Get proximity sensor state
-- `POST /device/wake` - Wake the display
-- `POST /device/sleep` - Put display to sleep
-- `POST /device/reboot` - Reboot the device
-
-#### `/media` - Audio Playback
-- `POST /media/play` - Play audio file (requires file URL)
-- `POST /media/pause` - Pause playback
-- `POST /media/resume` - Resume playback
-- `POST /media/stop` - Stop playback
-- `POST /media/volume` - Set volume (0.0-1.0)
-
-#### `/webview` - WebView Control
-- `POST /webview/refresh` - Reload the WebView
-- `POST /webview/inject` - Inject JavaScript code (requires `code` parameter)
 
 All endpoints return JSON responses with status and data fields.
 

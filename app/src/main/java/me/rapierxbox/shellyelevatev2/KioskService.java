@@ -2,6 +2,8 @@ package me.rapierxbox.shellyelevatev2;
 
 import android.app.ActivityManager;
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -18,6 +20,7 @@ public class KioskService extends Service {
 	@Override
 	public void onCreate() {
 		super.onCreate();
+		ensureNotificationChannel();
 		Log.i("KioskService", "Foreground service created");
 		startForeground(1, buildNotification());
 
@@ -40,6 +43,25 @@ public class KioskService extends Service {
 				.setContentText("Foreground anchor active")
 				.setSmallIcon(R.drawable.ic_launcher_foreground)
 				.build();
+	}
+
+	private void ensureNotificationChannel() {
+		if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+			return;
+		}
+
+		NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+		if (manager == null) {
+			return; // Avoid crashing if the service is unavailable
+		}
+
+		NotificationChannel channel = new NotificationChannel(
+				"kiosk_channel",
+				"Kiosk",
+				NotificationManager.IMPORTANCE_LOW
+		);
+		channel.setDescription("Keeps the kiosk foreground service alive");
+		manager.createNotificationChannel(channel);
 	}
 
 	private void startWatchdog() {

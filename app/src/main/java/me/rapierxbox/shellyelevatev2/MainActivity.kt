@@ -18,6 +18,7 @@ import android.view.WindowManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -51,6 +52,8 @@ import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mShellyElevateJava
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
 import me.rapierxbox.shellyelevatev2.databinding.MainActivityBinding
 import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
+import android.provider.Settings
+import android.net.Uri
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
@@ -317,8 +320,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                    val message = consoleMessage.message()
+                    
+                    // Filter out PacProcessor ClassNotFoundException errors
+                    // This is a known compatibility issue with Google WebView v128+ on targetSdk 24:
+                    // The WebView provider tries to load android.webkit.PacProcessor which doesn't 
+                    // exist in API 24, but this is benign - WebView still initializes and works correctly.
+                    // These errors clutter logs without indicating actual problems.
+                    if (message.contains("PacProcessor")) {
+                        return true // Suppress
+                    }
+                    
+                    // Log other console messages normally
+                    return super.onConsoleMessage(consoleMessage)
+                }
+            }
             addJavascriptInterface(mShellyElevateJavascriptInterface, "ShellyElevate")
+            
+            // Add touch listener for touch-to-wake support
+            setOnTouchListener { _, _ ->
+                val sm = ShellyElevateApplication.mScreenManager
+                val consumeForWake = sm?.shouldConsumeTouchForWake() == true
+                if (BuildConfig.DEBUG) Log.d("MainActivity", "Touch event detected on WebView, mScreenManager=$sm, consumeForWake=$consumeForWake")
+                sm?.onTouchEvent()
+                consumeForWake // true means we handled it for wake and don't pass to WebView
+            }
+            
             // Delay first load slightly to allow system services to settle after boot
             //postDelayed({ loadUrl(ServiceHelper.getWebviewUrl()) }, 500)
         }
@@ -424,6 +453,9 @@ class MainActivity : ComponentActivity() {
         // Start KioskService as foreground service
         ServiceHelper.ensureKioskService(applicationContext)
 
+        // Request WRITE_SETTINGS permission for brightness control
+        requestWriteSettingsPermission()
+
         // handle screen options
         setScreenOptions()
 
@@ -519,6 +551,25 @@ class MainActivity : ComponentActivity() {
             mMQTTServer.publishButton(i)
         }
         mShellyElevateJavascriptInterface.onButtonPressed(i)
+    }
+    /**
+     * Request WRITE_SETTINGS permission for brightness control.
+     * This is a special permission that requires explicit user action via Settings.
+     * SELinux denials (sysfs access) are expected and work in permissive mode on rooted devices.
+     */
+    private fun requestWriteSettingsPermission() {
+        if (!Settings.System.canWrite(this)) {
+            Log.w("MainActivity", "WRITE_SETTINGS permission not granted, requesting...")
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to request WRITE_SETTINGS permission", e)
+            }
+        }
     }
 
     @Suppress("DEPRECATION")

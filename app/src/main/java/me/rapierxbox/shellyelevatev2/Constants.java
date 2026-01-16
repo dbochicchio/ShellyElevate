@@ -34,6 +34,7 @@ public class Constants {
     public static final String SP_SCREEN_SAVER_ID = "screenSaverId";
     public static final String SP_WAKE_ON_PROXIMITY = "wakeOnProximity";
     public static final String SP_SCREEN_SAVER_MIN_BRIGHTNESS = "screenSaverMinBrightness";
+    public static final String SP_TOUCH_TO_WAKE = "touchToWake";
 
     //MQTT SP Keys
     public static final String SP_MQTT_ENABLED = "mqttEnabled";

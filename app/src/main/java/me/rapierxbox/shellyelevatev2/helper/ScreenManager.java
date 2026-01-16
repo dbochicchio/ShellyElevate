@@ -12,7 +12,9 @@ import static me.rapierxbox.shellyelevatev2.Constants.SP_AUTOMATIC_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_MIN_BRIGHTNESS;
 import static me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_MIN_BRIGHTNESS;
+import static me.rapierxbox.shellyelevatev2.Constants.SP_TOUCH_TO_WAKE;
 import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper;
+import static me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -61,6 +63,7 @@ public class ScreenManager extends BroadcastReceiver {
     private volatile int cachedFixedBrightness = DEFAULT_BRIGHTNESS;
     private volatile int cachedMinBrightness = MIN_BRIGHTNESS_DEFAULT;
     private volatile int cachedScreenSaverMinBrightness = MIN_BRIGHTNESS_DEFAULT;
+    private volatile boolean cachedTouchToWake = true;
 
     private final Context context;
     private final BrightnessAnimator brightnessAnimator = new BrightnessAnimator();
@@ -75,6 +78,8 @@ public class ScreenManager extends BroadcastReceiver {
                     cachedMinBrightness = clamp(sharedPreferences.getInt(SP_MIN_BRIGHTNESS, MIN_BRIGHTNESS_DEFAULT), 0, 255);
                 } else if (SP_SCREEN_SAVER_MIN_BRIGHTNESS.equals(key)) {
                     cachedScreenSaverMinBrightness = clamp(sharedPreferences.getInt(SP_SCREEN_SAVER_MIN_BRIGHTNESS, MIN_BRIGHTNESS_DEFAULT), 0, 255);
+                } else if (SP_TOUCH_TO_WAKE.equals(key)) {
+                    cachedTouchToWake = sharedPreferences.getBoolean(SP_TOUCH_TO_WAKE, true);
                 }
             };
 
@@ -82,6 +87,7 @@ public class ScreenManager extends BroadcastReceiver {
         this.context = ctx.getApplicationContext();
         prefs = context.getSharedPreferences(SHARED_PREFERENCES_NAME, MODE_PRIVATE);
         loadPrefsToCache();
+        Log.i(TAG, "ScreenManager initialized: cachedTouchToWake=" + cachedTouchToWake + ", cachedAutomaticBrightness=" + cachedAutomaticBrightness);
 
         prefs.registerOnSharedPreferenceChangeListener(prefsListener);
 
@@ -104,6 +110,7 @@ public class ScreenManager extends BroadcastReceiver {
         cachedFixedBrightness = clamp(prefs.getInt(SP_BRIGHTNESS, DEFAULT_BRIGHTNESS), 0, 255);
         cachedMinBrightness = clamp(prefs.getInt(SP_MIN_BRIGHTNESS, MIN_BRIGHTNESS_DEFAULT), 0, 255);
         cachedScreenSaverMinBrightness = clamp(prefs.getInt(SP_SCREEN_SAVER_MIN_BRIGHTNESS, MIN_BRIGHTNESS_DEFAULT), 0, 255);
+        cachedTouchToWake = prefs.getBoolean(SP_TOUCH_TO_WAKE, true);
     }
 
     public void onDestroy() {
@@ -126,6 +133,34 @@ public class ScreenManager extends BroadcastReceiver {
         if (!on) {
             applyBrightness(0, "screen off");
         }
+    }
+
+    /**
+     * Handle touch events to wake screen if touch-to-wake is enabled.
+     * Call this from MainActivity when touch events are detected on the WebView.
+     */
+    public void onTouchEvent() {
+        if (BuildConfig.DEBUG) Log.d(TAG, "onTouchEvent called: screenOn=" + screenOn + ", cachedTouchToWake=" + cachedTouchToWake + ", currentBrightness=" + currentBrightness + ", inScreenSaver=" + inScreenSaver);
+        // If screensaver is active, stop it immediately on touch
+        if (inScreenSaver) {
+            Log.i(TAG, "Touch detected, exiting screensaver");
+            mScreenSaverManager.stopScreenSaver();
+            return;
+        }
+
+        // If screen is off and touch-to-wake is enabled, turn screen back on
+        if (!screenOn && cachedTouchToWake) {
+            Log.i(TAG, "Touch detected, waking screen via touch-to-wake");
+            setScreenOn(true);
+            updateBrightness();
+        }
+    }
+
+    /**
+     * Determines if a touch should be consumed for waking instead of propagating to WebView.
+     */
+    public boolean shouldConsumeTouchForWake() {
+        return inScreenSaver || !screenOn || currentBrightness == 0;
     }
 
     private boolean automaticBrightness() {

@@ -45,6 +45,7 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_WAKE_ON_PROXIMITY
 import me.rapierxbox.shellyelevatev2.Constants.SP_WEBVIEW_URL
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mHttpServer
+import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenManager
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mScreenSaverManager
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSharedPreferences
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
@@ -61,6 +62,14 @@ class SettingsFragment : Fragment() {
 
     private var _binding: SettingsFragmentBinding? = null
     private val binding get() = _binding!!
+    private var savedBrightness = DEFAULT_BRIGHTNESS // Store previous brightness to restore on exit
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        // Restore previous brightness when leaving settings
+        mDeviceHelper?.setScreenBrightness(savedBrightness)
+        _binding = null
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = SettingsFragmentBinding.inflate(inflater, container, false)
@@ -70,6 +79,11 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 
         activity?.setTitle(R.string.settings)
+        
+        // Save current brightness and set to max for settings visibility
+        savedBrightness = mScreenManager?.let { mSharedPreferences?.getInt(SP_BRIGHTNESS, DEFAULT_BRIGHTNESS) ?: DEFAULT_BRIGHTNESS } ?: DEFAULT_BRIGHTNESS
+        mScreenManager?.setScreenOn(true)
+        mDeviceHelper?.setScreenBrightness(255)
 
         activity?.addMenuProvider(object : MenuProvider {
             override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
@@ -145,7 +159,7 @@ class SettingsFragment : Fragment() {
         binding.screenSaver.isChecked = mSharedPreferences.getBoolean(SP_SCREEN_SAVER_ENABLED, true)
         binding.screenSaverDelay.setText(mSharedPreferences.getInt(SP_SCREEN_SAVER_DELAY, SCREEN_SAVER_DEFAULT_DELAY).toString())
         binding.screenSaverType.setSelection(mSharedPreferences.getInt(SP_SCREEN_SAVER_ID, 0))
-        binding.wakeOnProximity.isChecked = mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, false)
+        binding.wakeOnProximity.isChecked = mSharedPreferences.getBoolean(SP_WAKE_ON_PROXIMITY, true)
         binding.screensaverMinBrightness.value = mSharedPreferences.getInt(SP_SCREEN_SAVER_MIN_BRIGHTNESS, MIN_BRIGHTNESS_DEFAULT).toFloat()
 
         //Http Server
@@ -243,11 +257,11 @@ class SettingsFragment : Fragment() {
             binding.httpServerButton.isVisible = false
         }
 
-        binding.swipeDetectionOverlay.setOnTouchListener { v, event ->
-            mSwipeHelper.onTouchEvent(event)
+        binding.swipeDetectionOverlay.setOnTouchListener { _, event ->
+            // Guard against null SwipeHelper when settings opens before app singletons are ready
+            mSwipeHelper?.onTouchEvent(event)
             mScreenSaverManager.onTouchEvent(event)
-
-            return@setOnTouchListener false
+            false
         }
     }
 
@@ -302,11 +316,6 @@ class SettingsFragment : Fragment() {
 
     private fun getLocalIpAddress(): String? =
         NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }.firstOrNull { it.isSiteLocalAddress }?.hostAddress
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
 
     override fun onPause() {
         super.onPause()

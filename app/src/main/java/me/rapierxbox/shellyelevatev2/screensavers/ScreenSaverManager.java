@@ -189,7 +189,7 @@ public class ScreenSaverManager extends BroadcastReceiver {
         var prefs = ShellyElevateApplication.mSharedPreferences;
         if (prefs == null) return;
 
-        boolean wakeOnProximity = prefs.getBoolean(SP_WAKE_ON_PROXIMITY, false);
+        boolean wakeOnProximity = prefs.getBoolean(SP_WAKE_ON_PROXIMITY, true);
         float threshold = 0.5f; // 0.5 cm buffer
         boolean isNear = proximity < maxProximitySensorValue - threshold;
         if (screenSaverRunning && isNear) {
