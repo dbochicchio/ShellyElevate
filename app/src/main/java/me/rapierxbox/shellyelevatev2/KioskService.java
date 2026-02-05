@@ -75,10 +75,10 @@ public class KioskService extends Service {
 					activityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 					startActivity(activityIntent);
 				}
-				handler.postDelayed(this, 10000); // check every 10s
+				handler.postDelayed(this, 30000); // check every 30s (increased from 10s)
 			}
 		};
-		handler.postDelayed(checkTask, 10000);
+		handler.postDelayed(checkTask, 30000); // initial delay 30s
 	}
 
 	private boolean isActivityRunning(Class<?> activityClass) {

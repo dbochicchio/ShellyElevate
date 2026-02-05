@@ -52,6 +52,8 @@ import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mShellyElevateJava
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mSwipeHelper
 import me.rapierxbox.shellyelevatev2.databinding.MainActivityBinding
 import me.rapierxbox.shellyelevatev2.helper.ServiceHelper
+import me.rapierxbox.shellyelevatev2.helper.ButtonPressDetector
+import me.rapierxbox.shellyelevatev2.Constants.SP_POWER_BUTTON_AUTO_REBOOT
 import android.provider.Settings
 import android.net.Uri
 import java.io.IOException
@@ -67,6 +69,13 @@ class MainActivity : ComponentActivity() {
 
     private var clicksButtonRight: Int = 0
     private var clicksButtonLeft: Int = 0
+
+    // Button press detectors for regular buttons (0-3) and power button (140)
+    private lateinit var buttonPressDetector0: ButtonPressDetector
+    private lateinit var buttonPressDetector1: ButtonPressDetector
+    private lateinit var buttonPressDetector2: ButtonPressDetector
+    private lateinit var buttonPressDetector3: ButtonPressDetector
+    private lateinit var powerButtonPressDetector: ButtonPressDetector
 
     // === SETTINGS CHANGED RECEIVER ===
     private val settingsChangedBroadcastReceiver: BroadcastReceiver = object : BroadcastReceiver() {
@@ -119,6 +128,69 @@ class MainActivity : ComponentActivity() {
     }
 
     var offlineFile = "file:///android_asset/offline.html"
+
+    /**
+     * Initialize button press detectors for all buttons that support press type detection.
+     * Each detector will invoke its callback when a press sequence is complete.
+     */
+    private fun initializeButtonPressDetectors() {
+        val pressCallback = ButtonPressDetector.Callback { buttonId, pressType ->
+            onButtonPressTypeDetected(buttonId, pressType)
+        }
+
+        buttonPressDetector0 = ButtonPressDetector(0, pressCallback)
+        buttonPressDetector1 = ButtonPressDetector(1, pressCallback)
+        buttonPressDetector2 = ButtonPressDetector(2, pressCallback)
+        buttonPressDetector3 = ButtonPressDetector(3, pressCallback)
+        powerButtonPressDetector = ButtonPressDetector(140, pressCallback)
+    }
+
+    /**
+     * Called when a button press type is detected (short, long, double, triple).
+     * For power button, may trigger reboot if auto-reboot is enabled.
+     */
+    private fun onButtonPressTypeDetected(buttonId: Int, pressType: String) {
+        Log.d("MainActivity", "Button $buttonId press type detected: $pressType")
+
+        if (buttonId == 140) {
+            // Power button handling
+            handlePowerButtonPress(pressType)
+        } else {
+            // Regular button handling (0-3)
+            publishButtonPress(buttonId, pressType)
+        }
+    }
+
+    /**
+     * Handle power button press with optional auto-reboot on long press.
+     */
+    private fun handlePowerButtonPress(pressType: String) {
+        publishButtonPress(140, pressType)
+
+        if (pressType == Constants.BUTTON_PRESS_TYPE_LONG) {
+            val autoReboot = mSharedPreferences.getBoolean(SP_POWER_BUTTON_AUTO_REBOOT, true)
+            if (autoReboot) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        Runtime.getRuntime().exec("reboot")
+                    } catch (e: IOException) {
+                        Log.e("MainActivity", "Error rebooting:", e)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Publish a button press to MQTT and JavaScript interface.
+     */
+    private fun publishButtonPress(buttonId: Int, pressType: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            mMQTTServer.publishButton(buttonId, pressType)
+        }
+        mShellyElevateJavascriptInterface.onButtonPressed(buttonId)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun setupSettingsButtons() {
         binding.settingButtonOverlayRight.setOnTouchListener { _, event ->
@@ -462,14 +534,26 @@ class MainActivity : ComponentActivity() {
         binding = MainActivityBinding.inflate(layoutInflater) // Inflate the binding
         setContentView(binding.root) // Set the content view using binding.root
 
+        // Initialize button press detectors
+        initializeButtonPressDetectors()
+
         configureWebView()
         setupSettingsButtons()
         setupSwipeOverlay()
 
         registerBroadcastReceivers()
 
-        if (!mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false))
-            startActivity(Intent(this, SettingsActivity::class.java))
+        // Only show settings on first run, but not if launched from settings or if already in settings task
+        if (!mSharedPreferences.getBoolean(SP_SETTINGS_EVER_SHOWN, false)) {
+            // Check if SettingsActivity is already in the task stack
+            val settingsAlreadyRunning = isActivityInStack(SettingsActivity::class.java.name)
+            if (!settingsAlreadyRunning && !isTaskRoot) {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            } else if (isTaskRoot) {
+                // Only start if this is the root activity (not being relaunched after crash)
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -499,30 +583,47 @@ class MainActivity : ComponentActivity() {
     private fun onKeyEventInternal(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (BuildConfig.DEBUG) Log.d("MainActivity", "Key pressed: $keyCode - Event: $event")
         when (keyCode) {
-            // Special power-like button (long-press release triggers reboot)
+            // Power button - use detector for press type (short/long/double/triple)
             140 -> {
-                if (event.action == KeyEvent.ACTION_UP) {
-                    val duration = event.eventTime - event.downTime
-                    if (duration >= 3000) {
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            try { Runtime.getRuntime().exec("reboot") } catch (e: IOException) {
-                                Log.e("MainActivity", "Error rebooting:", e)
-                            }
-                        }
-                        return true
-                    }
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> powerButtonPressDetector.onPressDown()
+                    KeyEvent.ACTION_UP -> powerButtonPressDetector.onPressUp()
                 }
-                return false
+                return true
             }
             // Switch inputs (treated as edge-triggered on ACTION_UP)
             141 -> { if (event.action == KeyEvent.ACTION_UP) switchInput(0, true); return true }
             142 -> { if (event.action == KeyEvent.ACTION_UP) switchInput(1, true); return true }
 
-            // Shelly input buttons
-            131 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(0); return true }; return false }
-            132 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(1); return true }; return false }
-            133 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(2); return true }; return false }
-            134 -> { if (event.action == KeyEvent.ACTION_UP) { buttonPressed(3); return true }; return false }
+            // Shelly input buttons - use detector for press type (short/long/double/triple)
+            131 -> {
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> buttonPressDetector0.onPressDown()
+                    KeyEvent.ACTION_UP -> buttonPressDetector0.onPressUp()
+                }
+                return true
+            }
+            132 -> {
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> buttonPressDetector1.onPressDown()
+                    KeyEvent.ACTION_UP -> buttonPressDetector1.onPressUp()
+                }
+                return true
+            }
+            133 -> {
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> buttonPressDetector2.onPressDown()
+                    KeyEvent.ACTION_UP -> buttonPressDetector2.onPressUp()
+                }
+                return true
+            }
+            134 -> {
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> buttonPressDetector3.onPressDown()
+                    KeyEvent.ACTION_UP -> buttonPressDetector3.onPressUp()
+                }
+                return true
+            }
 
             // Proximity
             135 -> { if (event.action == KeyEvent.ACTION_UP) { broadcastProximity(0f); return true }; return false }
@@ -546,12 +647,6 @@ class MainActivity : ComponentActivity() {
         mShellyElevateJavascriptInterface.onButtonPressed(100 + i)
     }
 
-    private fun buttonPressed(i: Int) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            mMQTTServer.publishButton(i)
-        }
-        mShellyElevateJavascriptInterface.onButtonPressed(i)
-    }
     /**
      * Request WRITE_SETTINGS permission for brightness control.
      * This is a special permission that requires explicit user action via Settings.
@@ -599,6 +694,24 @@ class MainActivity : ComponentActivity() {
         }
         cancelRetry()
         super.onDestroy()
+    }
+
+    /**
+     * Check if an activity with the given class name is already in the task stack
+     */
+    private fun isActivityInStack(activityClassName: String): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return false
+        val tasks = am.getRunningTasks(10)
+        for (task in tasks) {
+            val activities = task.numActivities
+            for (i in 0 until activities) {
+                val topActivity = task.topActivity
+                if (topActivity?.className == activityClassName) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     override fun onStop() {

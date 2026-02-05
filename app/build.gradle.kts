@@ -1,6 +1,26 @@
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoField
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
+}
+
+// Dynamic versioning: Major.YearDayOfYear (e.g., 3.26111)
+fun generateVersionCode(): Int {
+    val now = LocalDate.now()
+    val year = now.year % 100  // Last 2 digits of year
+    val dayOfYear = now.get(ChronoField.DAY_OF_YEAR)
+    // Format: 3YYDDD (e.g., 326111 for year 2026, day 111)
+    return 3_00_000 + (year * 1000) + dayOfYear
+}
+
+fun generateVersionName(): String {
+    val now = LocalDate.now()
+    val year = now.year % 100  // Last 2 digits of year
+    val dayOfYear = now.get(ChronoField.DAY_OF_YEAR)
+    return "3.${year}${dayOfYear.toString().padStart(3, '0')}"
 }
 
 android {
@@ -12,8 +32,8 @@ android {
         minSdk = 24
         //noinspection ExpiredTargetSdkVersion
         targetSdk = 24
-        versionCode = 3_00_00
-        versionName = "3.0.0"
+        versionCode = generateVersionCode()
+        versionName = generateVersionName()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

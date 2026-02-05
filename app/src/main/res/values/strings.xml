@@ -4,6 +4,7 @@
     <!-- Sync Preferences -->
     <string name="findIPButtonText">Search for HA URL</string>
     <string name="switchOnSwipeText">Switch on swipe</string>
+    <string name="power_button_auto_reboot">Power Button Auto-Reboot (long press)</string>
     <string name="automaticBrightnessText">Automatic Brightness</string>
     <string name="ScreenSaverText">Screen Saver</string>
     <string name="http_server_status_default">Status:</string>
@@ -41,4 +42,8 @@
     <string name="B_exit">Exit</string>
     <string name="wake_on_proximity">Wake on Proximity</string>
     <string name="ignore_ssl_errors">Ignore SSL Errors</string>
+    <string name="media_enabled">Media Enabled</string>
+    <string name="client_id">Client ID</string>
+    <string name="mqtt_client_id_hint">your custom client id</string>
+    <string name="mqtt_port_hint">1883</string>
 </resources>

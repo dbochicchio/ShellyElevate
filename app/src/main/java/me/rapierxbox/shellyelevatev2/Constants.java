@@ -13,6 +13,7 @@ public class Constants {
 
     //IO SP Keys
     public static final String SP_SWITCH_ON_SWIPE = "switchOnSwipe";
+    public static final String SP_POWER_BUTTON_AUTO_REBOOT = "powerButtonAutoReboot";
 
     //Webserver SP Keys
     public static final String SP_HTTP_SERVER_ENABLED = "httpServer";
@@ -77,13 +78,21 @@ public class Constants {
     public static final String MQTT_TOPIC_RELAY_COMMAND = "shellyelevatev2/%s/relay_command";
     public static String MQTT_TOPIC_SWITCH_STATE = "shellyelevatev2/%s/switch_state";
     public static final String MQTT_TOPIC_UPDATE = "shellyelevatev2/%s/update";
+    public static final String MQTT_TOPIC_UPDATE_GENERIC = "shellyelevatev2/update";
     public static final String MQTT_TOPIC_HELLO = "shellyelevatev2/%s/hello";
     public static final String MQTT_TOPIC_BUTTON_STATE = "shellyelevatev2/%s/button";
     public static final String MQTT_TOPIC_SLEEP_BUTTON = "shellyelevatev2/%s/sleep";
     public static final String MQTT_TOPIC_WAKE_BUTTON = "shellyelevatev2/%s/wake";
     public static final String MQTT_TOPIC_REFRESH_WEBVIEW_BUTTON = "shellyelevatev2/%s/refresh_webview";
     public static final String MQTT_TOPIC_REBOOT_BUTTON = "shellyelevatev2/%s/reboot";
+    public static final String MQTT_TOPIC_POWER_BUTTON = "shellyelevatev2/%s/power_button";
     public static final String MQTT_TOPIC_SWIPE_EVENT = "shellyelevatev2/%s/swipe_event";
     public static final String MQTT_TOPIC_SLEEPING_BINARY_SENSOR = "shellyelevatev2/%s/sleeping";
     public static final String MQTT_TOPIC_HOME_ASSISTANT_STATUS = "homeassistant/status";
+
+    //Button Press Types
+    public static final String BUTTON_PRESS_TYPE_SHORT = "short";
+    public static final String BUTTON_PRESS_TYPE_LONG = "long";
+    public static final String BUTTON_PRESS_TYPE_DOUBLE = "double";
+    public static final String BUTTON_PRESS_TYPE_TRIPLE = "triple";
 }

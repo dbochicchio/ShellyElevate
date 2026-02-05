@@ -82,11 +82,48 @@ public class MQTTServer {
         BroadcastReceiver settingsChangedBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                checkCredsAndConnect();
+                Log.d("MQTT", "Settings changed - reconnecting with new config");
+                // Disconnect existing connection before reconnecting with new settings
+                reconnectWithNewSettings();
             }
         };
         LocalBroadcastManager.getInstance(mApplicationContext)
                 .registerReceiver(settingsChangedBroadcastReceiver, new IntentFilter(INTENT_SETTINGS_CHANGED));
+    }
+
+    /**
+     * Disconnect and reconnect with new settings.
+     * Called when settings are changed via HTTP API or settings UI.
+     */
+    private void reconnectWithNewSettings() {
+        scheduler.execute(() -> {
+            try {
+                // Disconnect existing client if connected
+                if (mMqttClient != null && mMqttClient.isConnected()) {
+                    Log.d("MQTT", "Disconnecting old MQTT connection before applying new settings");
+                    try {
+                        mMqttClient.disconnect();
+                        mMqttClient.close();
+                    } catch (MqttException e) {
+                        Log.w("MQTT", "Error disconnecting during settings change", e);
+                    }
+                    mMqttClient = null;
+                }
+                
+                // Update clientId from settings (mqttDeviceId)
+                setupClientId();
+                Log.d("MQTT", "Updated MQTT client ID to: " + clientId);
+                
+                // Small delay to ensure clean disconnection
+                Thread.sleep(500);
+                
+                // Now check credentials and connect with new settings
+                checkCredsAndConnect();
+            } catch (InterruptedException e) {
+                Log.e("MQTT", "Interrupted during reconnect", e);
+                Thread.currentThread().interrupt();
+            }
+        });
     }
 
     private void schedulePeriodicTempHum() {
@@ -96,12 +133,24 @@ public class MQTTServer {
     }
 
     public void checkCredsAndConnect() {
-        if (!isEnabled()) return;
+        if (!isEnabled()) {
+            // If MQTT is disabled in settings, disconnect if connected
+            if (mMqttClient != null && mMqttClient.isConnected()) {
+                Log.d("MQTT", "MQTT disabled in settings - disconnecting");
+                disconnect();
+            }
+            return;
+        }
 
         validForConnection =
                 !mSharedPreferences.getString(SP_MQTT_PASSWORD, "").isEmpty() &&
                         !mSharedPreferences.getString(SP_MQTT_USERNAME, "").isEmpty() &&
                         !mSharedPreferences.getString(SP_MQTT_BROKER, "").isEmpty();
+
+        if (!validForConnection) {
+            Log.w("MQTT", "Invalid connection credentials - broker, username, or password missing");
+            return;
+        }
 
         schedulePeriodicTempHum();
 
@@ -372,10 +421,40 @@ public class MQTTServer {
         publishInternal(parseTopic(MQTT_TOPIC_SLEEPING_BINARY_SENSOR), state ? "ON" : "OFF", 1, false);
     }
 
-    public void publishButton(int number) {
+    /**
+     * Publish a button press event with press type (short, long, double, triple).
+     * For power button (ID 140), publishes to MQTT_TOPIC_POWER_BUTTON; for others to MQTT_TOPIC_BUTTON_STATE.
+     */
+    public void publishButton(int number, String pressType) {
         long epochMillis = System.currentTimeMillis();
-        String payload = "{\"last_update\": " + epochMillis + "}";
-        publishInternalCoalesced(parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + number, payload, 1, false);
+        JSONObject json = new JSONObject();
+        try {
+            json.put("last_update", epochMillis);
+            json.put("press_type", pressType);
+            // Add event_type for Home Assistant MQTT event standard
+            json.put("event_type", pressType);
+        } catch (Exception e) {
+            Log.e("MQTT", "Error creating button JSON", e);
+        }
+
+        String topic;
+        if (number == 140) {
+            // Power button has its own dedicated topic
+            topic = parseTopic(MQTT_TOPIC_POWER_BUTTON);
+        } else {
+            // Regular buttons (0-3)
+            topic = parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + number;
+        }
+
+        publishInternalCoalesced(topic, json.toString(), 1, false);
+    }
+
+    /**
+     * Legacy method for backward compatibility - assumes short press type.
+     */
+    @Deprecated
+    public void publishButton(int number) {
+        publishButton(number, BUTTON_PRESS_TYPE_SHORT);
     }
 
     public void publishSwipeEvent() {
@@ -398,7 +477,6 @@ public class MQTTServer {
             json.put("version", version);
             json.put("startTime", getApplicationStartTime());
             json.put("buildType", BuildConfig.BUILD_TYPE);
-            json.put("debug", BuildConfig.DEBUG);
             var device = DeviceModel.getReportedDevice();
             json.put("modelName", device.name());
             json.put("proximity", device.hasProximitySensor ? "true" : "false");
@@ -409,13 +487,48 @@ public class MQTTServer {
         }
     }
 
+    private JSONObject createButtonEventConfig(String name, String stateTopic, String uniqueId) throws JSONException {
+        JSONObject eventPayload = new JSONObject();
+        eventPayload.put("p", "event");
+        eventPayload.put("name", name);
+        eventPayload.put("state_topic", stateTopic);
+        eventPayload.put("device_class", "button");
+        eventPayload.put("event_types", new JSONArray()
+                .put(BUTTON_PRESS_TYPE_SHORT)
+                .put(BUTTON_PRESS_TYPE_LONG)
+                .put(BUTTON_PRESS_TYPE_DOUBLE)
+                .put(BUTTON_PRESS_TYPE_TRIPLE));
+        eventPayload.put("unique_id", uniqueId);
+        eventPayload.put("object_id", "shelly_walldisplay_" + uniqueId);
+        return eventPayload;
+    }
+
+    private JSONObject createButtonTimestampConfig(String name, String stateTopic, String uniqueId) throws JSONException {
+        JSONObject sensorPayload = new JSONObject();
+        sensorPayload.put("p", "sensor");
+        sensorPayload.put("name", name);
+        sensorPayload.put("state_topic", stateTopic);
+        sensorPayload.put("unique_id", uniqueId);
+        sensorPayload.put("object_id", "shelly_walldisplay_" + uniqueId);
+        sensorPayload.put("device_class", "timestamp");
+        sensorPayload.put(
+                "value_template",
+                "{{ (value_json.last_update / 1000) | timestamp_custom('%Y-%m-%dT%H:%M:%S%z', true) }}"
+        );
+        return sensorPayload;
+    }
+
     private void publishConfig() throws JSONException, MqttException {
         JSONObject configPayload = new JSONObject();
 
+        DeviceModel deviceModel = DeviceModel.getReportedDevice();
+        
         JSONObject device = new JSONObject();
         device.put("ids", clientId);
-        device.put("name", "Shelly Wall Display");
+        device.put("name", deviceModel.friendlyName + " (" + clientId + ")" );
         device.put("mf", "Shelly");
+        device.put("mdl", deviceModel.modelName);
+        device.put("sw", BuildConfig.VERSION_NAME);
         configPayload.put("dev", device);
 
         JSONObject origin = new JSONObject();
@@ -432,6 +545,7 @@ public class MQTTServer {
         tempSensorPayload.put("device_class", "temperature");
         tempSensorPayload.put("unit_of_measurement", "°C");
         tempSensorPayload.put("unique_id", clientId + "_temp");
+        tempSensorPayload.put("object_id", "shelly_walldisplay_" + clientId + "_temp");
         components.put(clientId + "_temp", tempSensorPayload);
 
         JSONObject humSensorPayload = new JSONObject();
@@ -441,6 +555,7 @@ public class MQTTServer {
         humSensorPayload.put("device_class", "humidity");
         humSensorPayload.put("unit_of_measurement", "%");
         humSensorPayload.put("unique_id", clientId + "_hum");
+        humSensorPayload.put("object_id", "shelly_walldisplay_" + clientId + "_hum");
         components.put(clientId + "_hum", humSensorPayload);
 
         JSONObject luxSensorPayload = new JSONObject();
@@ -450,6 +565,7 @@ public class MQTTServer {
         luxSensorPayload.put("device_class", "illuminance");
         luxSensorPayload.put("unit_of_measurement", "lx");
         luxSensorPayload.put("unique_id", clientId + "_lux");
+        luxSensorPayload.put("object_id", "shelly_walldisplay_" + clientId + "_lux");
         components.put(clientId + "_lux", luxSensorPayload);
 
         if (DeviceModel.getReportedDevice().hasProximitySensor) {
@@ -460,27 +576,30 @@ public class MQTTServer {
             proximitySensorPayload.put("device_class", "distance");
             proximitySensorPayload.put("unit_of_measurement", "cm");
             proximitySensorPayload.put("unique_id", clientId + "_proximity");
+            proximitySensorPayload.put("object_id", "shelly_walldisplay_" + clientId + "_proximity");
             components.put(clientId + "_proximity", proximitySensorPayload);
+        }
+
+        // power button (button 140) - only for V2 devices that have it
+        if (DeviceModel.getReportedDevice().hasPowerButton) {
+            String powerButtonTopic = parseTopic(MQTT_TOPIC_POWER_BUTTON);
+            components.put(clientId + "_power_button", 
+                    createButtonEventConfig("Power Button", powerButtonTopic, clientId + "_power_button"));
+            components.put(clientId + "_power_button_lastpress", 
+                    createButtonTimestampConfig("Power Button Last Press", powerButtonTopic, clientId + "_power_button_lastpress"));
         }
 
         // buttons
         var buttons = DeviceModel.getReportedDevice().buttons;
         if (buttons > 0) {
             for (int i = 0; i < buttons; i++) {
-                JSONObject sensorPayload = new JSONObject();
-                sensorPayload.put("p", "sensor");
-                sensorPayload.put("name", "Button " + i + " Last Press");
-                sensorPayload.put("state_topic", parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + i);
-                sensorPayload.put("unique_id", clientId + "_button_" + i + "_lastpress");
-                sensorPayload.put("device_class", "timestamp");
-
-                // value_template to convert Unix millis to ISO 8601
-                sensorPayload.put(
-                        "value_template",
-                        "{{ (value_json.last_update / 1000) | timestamp_custom('%Y-%m-%dT%H:%M:%S%z', true) }}"
-                );
-
-                components.put(clientId + "_button_" + i + "_lastpress", sensorPayload);
+                String buttonTopic = parseTopic(MQTT_TOPIC_BUTTON_STATE) + "/" + i;
+                String buttonId = clientId + "_button_" + i;
+                
+                components.put(buttonId, 
+                        createButtonEventConfig("Button " + i, buttonTopic, buttonId));
+                components.put(buttonId + "_lastpress", 
+                        createButtonTimestampConfig("Button " + i + " Last Press", buttonTopic, buttonId + "_lastpress"));
             }
         }
 
@@ -494,6 +613,7 @@ public class MQTTServer {
             relaySwitchPayload.put("command_topic", parseTopic(MQTT_TOPIC_RELAY_COMMAND) + mqttSuffix);
             relaySwitchPayload.put("device_class", "outlet");
             relaySwitchPayload.put("unique_id", clientId + "_relay" + (num >0 ? ("_" + num): ""));
+            relaySwitchPayload.put("object_id", "shelly_walldisplay_" + clientId + "_relay" + (num >0 ? ("_" + num): ""));
             components.put(clientId + "_relay" + (num >0 ? ("_" + num): ""), relaySwitchPayload);
 
             JSONObject buttonPayload = new JSONObject();
@@ -504,6 +624,7 @@ public class MQTTServer {
             buttonPayload.put("payload_release", "RELEASE");
             buttonPayload.put("value_template", "{{ value }}");
             buttonPayload.put("unique_id", clientId + "_switch" + (num > 0 ? ("_" + num) : ""));
+            buttonPayload.put("object_id", "shelly_walldisplay_" + clientId + "_switch" + (num > 0 ? ("_" + num) : ""));
             buttonPayload.put("device_class", "restart"); // optional: or "none"
             components.put(clientId + "_switch" + (num > 0 ? ("_" + num) : ""), buttonPayload);
         }
@@ -513,6 +634,7 @@ public class MQTTServer {
         sleepButtonPayload.put("name", "Sleep");
         sleepButtonPayload.put("command_topic", parseTopic(MQTT_TOPIC_SLEEP_BUTTON));
         sleepButtonPayload.put("unique_id", clientId + "_sleep");
+        sleepButtonPayload.put("object_id", "shelly_walldisplay_" + clientId + "_sleep");
         components.put(clientId + "_sleep", sleepButtonPayload);
 
         JSONObject wakeButtonPayload = new JSONObject();
@@ -520,6 +642,7 @@ public class MQTTServer {
         wakeButtonPayload.put("name", "Wake");
         wakeButtonPayload.put("command_topic", parseTopic(MQTT_TOPIC_WAKE_BUTTON));
         wakeButtonPayload.put("unique_id", clientId + "_wake");
+        wakeButtonPayload.put("object_id", "shelly_walldisplay_" + clientId + "_wake");
         components.put(clientId + "_wake", wakeButtonPayload);
 
         JSONObject refreshWebviewButtonPayload = new JSONObject();
@@ -528,6 +651,7 @@ public class MQTTServer {
         refreshWebviewButtonPayload.put("command_topic", parseTopic(MQTT_TOPIC_REFRESH_WEBVIEW_BUTTON));
         refreshWebviewButtonPayload.put("device_class", "restart");
         refreshWebviewButtonPayload.put("unique_id", clientId + "_refresh_webview");
+        refreshWebviewButtonPayload.put("object_id", "shelly_walldisplay_" + clientId + "_refresh_webview");
         components.put(clientId + "_refresh_webview", refreshWebviewButtonPayload);
 
         JSONObject rebootButtonPayload = new JSONObject();
@@ -536,6 +660,7 @@ public class MQTTServer {
         rebootButtonPayload.put("command_topic", parseTopic(MQTT_TOPIC_REBOOT_BUTTON));
         rebootButtonPayload.put("device_class", "restart");
         rebootButtonPayload.put("unique_id", clientId + "_reboot");
+        rebootButtonPayload.put("object_id", "shelly_walldisplay_" + clientId + "_reboot");
         components.put(clientId + "_reboot", rebootButtonPayload);
 
         JSONObject swipeEventPayload = new JSONObject();
@@ -545,6 +670,7 @@ public class MQTTServer {
         swipeEventPayload.put("device_class", "button");
         swipeEventPayload.put("event_types", new JSONArray().put("swipe"));
         swipeEventPayload.put("unique_id", clientId + "_swipe_event");
+        swipeEventPayload.put("object_id", "shelly_walldisplay_" + clientId + "_swipe_event");
         components.put(clientId + "_swipe_event", swipeEventPayload);
 
         JSONObject sleepingBinarySensorPayload = new JSONObject();
@@ -552,6 +678,7 @@ public class MQTTServer {
         sleepingBinarySensorPayload.put("name", "Sleeping");
         sleepingBinarySensorPayload.put("state_topic", parseTopic(MQTT_TOPIC_SLEEPING_BINARY_SENSOR));
         sleepingBinarySensorPayload.put("unique_id", clientId + "_sleeping");
+        sleepingBinarySensorPayload.put("object_id", "shelly_walldisplay_" + clientId + "_sleeping");
         components.put(clientId + "_sleeping", sleepingBinarySensorPayload);
 
         // TODO: brightness as both state and control

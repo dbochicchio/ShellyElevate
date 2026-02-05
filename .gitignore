@@ -19,3 +19,4 @@ app/build/*
 *.sqlite
 /.vs
 build.log
+/.tmp

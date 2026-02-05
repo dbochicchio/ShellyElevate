@@ -41,6 +41,7 @@ import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ENABLED
 import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_ID
 import me.rapierxbox.shellyelevatev2.Constants.SP_SCREEN_SAVER_MIN_BRIGHTNESS
 import me.rapierxbox.shellyelevatev2.Constants.SP_SWITCH_ON_SWIPE
+import me.rapierxbox.shellyelevatev2.Constants.SP_POWER_BUTTON_AUTO_REBOOT
 import me.rapierxbox.shellyelevatev2.Constants.SP_WAKE_ON_PROXIMITY
 import me.rapierxbox.shellyelevatev2.Constants.SP_WEBVIEW_URL
 import me.rapierxbox.shellyelevatev2.ShellyElevateApplication.mDeviceHelper
@@ -146,6 +147,9 @@ class SettingsFragment : Fragment() {
 
         //Switch
         binding.switchOnSwipe.isChecked = mSharedPreferences.getBoolean(SP_SWITCH_ON_SWIPE, true)
+
+        // Power button auto-reboot
+        binding.powerButtonAutoReboot.isChecked = mSharedPreferences.getBoolean(SP_POWER_BUTTON_AUTO_REBOOT, true)
 
         // media
         binding.mediaEnabled.isChecked = mSharedPreferences.getBoolean(SP_MEDIA_ENABLED, false)
@@ -287,6 +291,9 @@ class SettingsFragment : Fragment() {
 
             //Switch
             putBoolean(SP_SWITCH_ON_SWIPE, binding.switchOnSwipe.isChecked)
+
+            // Power button auto-reboot
+            putBoolean(SP_POWER_BUTTON_AUTO_REBOOT, binding.powerButtonAutoReboot.isChecked)
 
             // media
             putBoolean(SP_MEDIA_ENABLED, binding.mediaEnabled.isChecked)
