@@ -33,7 +33,7 @@ public enum DeviceModel {
         this.model = model;
         this.modelName = modelName;
         this.friendlyName = friendlyName;
-	    this.hasProximitySensor = hasProximitySensor;
+        this.hasProximitySensor = hasProximitySensor;
         this.hasPowerButton = hasPowerButton;
         this.temperatureOffset = temperatureOffset;
         this.humidityOffset = humidityOffset;
