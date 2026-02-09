@@ -34,7 +34,7 @@ public class DeviceHelper {
             "/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness",
             "/sys/devices/platform/sprd_backlight/backlight/sprd_backlight/brightness",
             "/sys/devices/platform/backlight/backlight/backlight/brightness"
-            };
+    };
     private String screenBrightnessFile;
     private boolean screenOn = true;
     private int lastScreenBrightness;
@@ -67,7 +67,7 @@ public class DeviceHelper {
     public void setScreenBrightness(int brightness) {
         // Skip redundant writes to avoid duplicate logs and I/O
         if (lastScreenBrightness == brightness) return;
-        
+
         lastScreenBrightness = brightness;
         setScreenBrightnessInternal(brightness);
     }
@@ -81,9 +81,9 @@ public class DeviceHelper {
     private void writeScreenBrightness(int brightness) {
         brightness = Math.max(0, Math.min(brightness, 255));
         if (BuildConfig.DEBUG) Log.d(TAG, "Set brightness to: " + brightness);
-        
+
         // Check for WRITE_SETTINGS permission (requested in MainActivity.onCreate)
-        // Note: SELinux denials for sysfs access (avc: denied { write } for name="brightness") 
+        // Note: SELinux denials for sysfs access (avc: denied { write } for name="brightness")
         // are expected and work in permissive mode on rooted Shelly devices
         if (!Settings.System.canWrite(mApplicationContext)) {
             Log.i(TAG, "Please disable androids automatic brightness or give the app the change settings permission.");
@@ -105,7 +105,10 @@ public class DeviceHelper {
         if (num < 0 || num >= possibleRelayFiles.length) return false;
 
         for (String relayFile : possibleRelayFiles[num]) {
-            relayState |= readFileContent(relayFile).contains("1");
+            String content = readFileContent(relayFile);
+            if (content != null) {
+                relayState |= content.contains("1");
+            }
         }
 
         return relayState;
@@ -128,7 +131,7 @@ public class DeviceHelper {
         try
         {
             var content = readFileContent(tempAndHumFile);
-            if (content == null || content == "") return -999;
+            if (content == null || content.isEmpty()) return -999;
 
             String[] tempSplit = content.split(":");
             double temp = (Double.parseDouble(tempSplit[1]) * 175.0 / 65535.0) - 45.0;
@@ -144,7 +147,7 @@ public class DeviceHelper {
     public double getHumidity() {
         try {
             var content = readFileContent(tempAndHumFile);
-            if (content == null || content == "") return -999;
+            if (content == null || content.isEmpty()) return -999;
 
             String[] humiditySplit = content.split(":");
             double humidity = Double.parseDouble(humiditySplit[0]) * 100.0 / 65535.0;
@@ -168,7 +171,7 @@ public class DeviceHelper {
     }
 
     private static String readFileContent(String filePath) {
-       if (!fileExists(filePath))
+        if (!fileExists(filePath))
             return null;
 
         StringBuilder content = new StringBuilder();
