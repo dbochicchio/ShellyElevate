@@ -933,9 +933,8 @@ Contributions, feature requests, and bug reports are welcome! Please:
 ### Resources
 
 - 📖 [Jailbreak Guide](https://github.com/RapierXbox/ShellyElevate/wiki/Jailbreak) - Hack your Shelly Wall Display
-- 📦 [Releases](https://github.com/RapierXbox/ShellyElevate/releases) - Download latest APK
 - 🏠 [Home Assistant Integration](https://github.com/RapierXbox/ShellyElevate/wiki/Integration-into-Home-Assistant) - Setup guide
-- 🐛 [Issue Tracker](https://github.com/RapierXbox/ShellyElevate/issues) - Report bugs
+- 🐛 [Issue Tracker](https://github.com/dbochicchio/ShellyElevate/issues) - Report bugs
 
 ---
 
